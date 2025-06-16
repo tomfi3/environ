@@ -843,7 +843,7 @@ COLOR_SCALES = {
         'UK': {
             'name': 'UK Legal Limits',
             'ranges': [
-                (0, 40, 'Moderate', '#ffa500'),      # green
+                (0, 40, 'Moderate', '#00ff00'),      # green
                 (40, 60, 'Poor', '#ffa500'),          # Orange
                 (60, float('inf'), 'Very Poor', '#ff0000')  # Red - UK legal limit
             ]
@@ -1311,7 +1311,7 @@ def set_chart_expanded(n, expanded):
 
 def marker_size_for_zoom(zoom, base_zoom=12, base_size=20):
     """Dramatically scale marker size with zoom level."""
-    return max(9, int(base_size *1.2**(zoom - base_zoom)))  
+    return max(7, int(base_size *1.2**(zoom - base_zoom)))  
     
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
