@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: environ-dashboard
+    name: airdash
     runtime: python
     pythonVersion: 3.12.3   # <— must be here, correctly indented
     buildCommand: |
