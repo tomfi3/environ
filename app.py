@@ -613,20 +613,15 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
                 marker=dict(size=4)
             ))
             max_y = max(max_y, sensor_data['value'].max())
-    # Add limit lines
-    limit_lines = []
-    if selected_pollutant == 'NO2':
-        limit_lines = [
-            dict(type='line', y0=40, y1=40, xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')),
-            dict(type='line', y0=10, y1=10, xref='paper', x0=0, x1=1, line=dict(color='blue', width=2, dash='dot'))
-        ]
-        max_y = max(max_y, 45)
-    elif selected_pollutant == 'PM2.5':
-        limit_lines = [
-            dict(type='line', y0=20, y1=20, xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')),
-            dict(type='line', y0=5, y1=5, xref='paper', x0=0, x1=1, line=dict(color='blue', width=2, dash='dot'))
-        ]
-        max_y = max(max_y, 22)
+    # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
+    ref_lines = []
+    if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
+        who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
+        uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
+        if selected_pollutant in who_limits:
+            ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+        if selected_pollutant in uk_limits:
+            ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
     fig.update_layout(
         title=dict(text="Detailed Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
         plot_bgcolor='white',
@@ -650,7 +645,7 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
             zerolinecolor='black',
             range=[0, max_y * 1.05]
         ),
-        shapes=limit_lines
+        shapes=ref_lines
     )
     return fig
 
@@ -1027,11 +1022,14 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
             font=dict(size=14, color="gray")
         )
         fig.update_layout(
-            title="Time Series",
-            xaxis=dict(showgrid=False, showticklabels=False),
-            yaxis=dict(showgrid=False, showticklabels=False),
+            height=170,
+            margin=dict(l=40, r=40, t=40, b=40),
             plot_bgcolor='white',
-            paper_bgcolor='white'
+            paper_bgcolor='white',
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            yaxis=dict(showticklabels=False, range=[0, None]),
+            shapes=ref_lines
         )
         return fig
     
@@ -1052,11 +1050,14 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
             font=dict(size=14, color="gray")
         )
         fig.update_layout(
-            title="Time Series",
-            xaxis=dict(showgrid=False, showticklabels=False),
-            yaxis=dict(showgrid=False, showticklabels=False),
+            height=170,
+            margin=dict(l=40, r=40, t=40, b=40),
             plot_bgcolor='white',
-            paper_bgcolor='white'
+            paper_bgcolor='white',
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            yaxis=dict(showticklabels=False, range=[0, None]),
+            shapes=ref_lines
         )
         return fig
     
@@ -1083,16 +1084,24 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
                 marker=dict(size=4)
             ))
     
+    # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
+    ref_lines = []
+    if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
+        who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
+        uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
+        if selected_pollutant in who_limits:
+            ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+        if selected_pollutant in uk_limits:
+            ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
     fig.update_layout(
-        title="Time Series",
-        xaxis_title="Date",
-        yaxis_title=f"{selected_pollutant} ({selected_averaging})",
         height=170,
         margin=dict(l=40, r=40, t=40, b=40),
         plot_bgcolor='white',
         paper_bgcolor='white',
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(showticklabels=False, range=[0, None]),
+        shapes=ref_lines
     )
     
     return fig
@@ -1135,11 +1144,13 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             font=dict(size=14, color="gray")
         )
         fig.update_layout(
-            title="Bar Chart",
-            xaxis=dict(showgrid=False, showticklabels=False),
-            yaxis=dict(showgrid=False, showticklabels=False),
+            height=170,
+            margin=dict(l=40, r=40, t=40, b=40),
             plot_bgcolor='white',
-            paper_bgcolor='white'
+            paper_bgcolor='white',
+            xaxis=dict(tickangle=45),
+            yaxis=dict(showticklabels=False, range=[0, None]),
+            shapes=ref_lines
         )
         return fig
     
@@ -1160,11 +1171,13 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             font=dict(size=14, color="gray")
         )
         fig.update_layout(
-            title="Bar Chart",
-            xaxis=dict(showgrid=False, showticklabels=False),
-            yaxis=dict(showgrid=False, showticklabels=False),
+            height=170,
+            margin=dict(l=40, r=40, t=40, b=40),
             plot_bgcolor='white',
-            paper_bgcolor='white'
+            paper_bgcolor='white',
+            xaxis=dict(tickangle=45),
+            yaxis=dict(showticklabels=False, range=[0, None]),
+            shapes=ref_lines
         )
         return fig
     
@@ -1183,15 +1196,24 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
         opacity=0.8
     ))
     
+    # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
+    ref_lines = []
+    if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
+        who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
+        uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
+        if selected_pollutant in who_limits:
+            ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+        if selected_pollutant in uk_limits:
+            ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
+    
     fig.update_layout(
-        title="Average Values by Sensor",
-        xaxis_title="Sensor",
-        yaxis_title=f"{selected_pollutant} ({selected_averaging})",
         height=170,
         margin=dict(l=40, r=40, t=40, b=40),
         plot_bgcolor='white',
         paper_bgcolor='white',
-        xaxis=dict(tickangle=45)
+        xaxis=dict(tickangle=45),
+        yaxis=dict(showticklabels=False, range=[0, None]),
+        shapes=ref_lines
     )
     
     return fig
@@ -1277,7 +1299,6 @@ def set_chart_expanded(n, expanded):
     if n is None:
         return False
     return not expanded
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
