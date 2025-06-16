@@ -19,13 +19,23 @@ SYMBOL_MAP = {
 }
 
 # Load data from CSV file
+# Load data from CSV file
 def load_data():
-    """Load environmental data from GitHub CSV file"""
-    csv_url = 'https://raw.githubusercontent.com/tomfi3/environ/main/environmental_data_merged.csv'
-    df = pd.read_csv(csv_url)
+    """Load environmental data from a local CSV shipped with the app"""
+    # Build an absolute path that works on Render or locally
+    csv_path = os.path.join(
+        os.path.dirname(__file__),  # folder where app.py lives
+        "data",
+        "environmental_data_merged.csv"
+    )
+    df = pd.read_csv(csv_path)
+
     # Standardize Richmond borough names
-    df['borough'] = df['borough'].replace(to_replace=r'(?i)richmond.*', value='Richmond', regex=True)
+    df["borough"] = df["borough"].replace(
+        to_replace=r"(?i)richmond.*", value="Richmond", regex=True
+    )
     return df
+
 
 # Borough name mapping for short labels
 BOROUGH_LABELS = {
