@@ -825,7 +825,7 @@ COLOR_SCALES = {
         'UK': {
             'name': 'UK Legal Limits',
             'ranges': [
-                (0, 40, 'Moderate', '#ffa500'),      # green
+                (0, 40, 'Moderate', '#00ff00'),      # green
                 (40, 60, 'Poor', '#ffa500'),          # Orange
                 (60, float('inf'), 'Very Poor', '#ff0000')  # Red - UK legal limit
             ]
