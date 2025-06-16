@@ -358,14 +358,16 @@ app.layout = html.Div([
     prevent_initial_call=True
 )
 def update_map_view(relayoutData, current_view):
+    print(f"[DEBUG] update_map_view called with relayoutData: {relayoutData}")
     if not relayoutData:
         return current_view
     new_center = current_view['center']
     new_zoom = current_view['zoom']
-    if 'mapbox.center' in relayoutData:
-        new_center = relayoutData['mapbox.center']
-    if 'mapbox.zoom' in relayoutData:
-        new_zoom = relayoutData['mapbox.zoom']
+    if 'map.center' in relayoutData:
+        new_center = relayoutData['map.center']
+    if 'map.zoom' in relayoutData:
+        new_zoom = relayoutData['map.zoom']
+    print(f"[DEBUG] Updated zoom from {current_view['zoom']} to {new_zoom}")
     return {'center': new_center, 'zoom': new_zoom}
 
 @callback(
@@ -378,7 +380,8 @@ def update_selected_map_style(style):
 
 @callback(
     Output('map-graph', 'figure'),
-    [Input('selected-boroughs', 'data'),
+    [Input('map-graph', 'relayoutData'),
+     Input('selected-boroughs', 'data'),
      Input('selected-pollutant', 'data'),
      Input('selected-sensor-types', 'data'),
      Input('selected-averaging', 'data'),
@@ -386,11 +389,10 @@ def update_selected_map_style(style):
      Input('selected-month', 'data'),
      Input('selected-color-scale', 'data'),
      Input('selected-map-style', 'data')],
-    [State('map-view-store', 'data'),
-     State('selected-individual-sensors', 'data')],
+    [State('selected-individual-sensors', 'data')],
     prevent_initial_call=False
 )
-def update_map(selected_boroughs, selected_pollutant, selected_sensor_types, selected_averaging, selected_year, selected_month, selected_color_scale, selected_map_style, map_view, selected_individual_sensors):
+def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_types, selected_averaging, selected_year, selected_month, selected_color_scale, selected_map_style, selected_individual_sensors):
     print(f"[DEBUG] Map callback inputs:")
     print(f"  - selected_boroughs: {selected_boroughs}")
     print(f"  - selected_pollutant: {selected_pollutant}")
@@ -402,6 +404,18 @@ def update_map(selected_boroughs, selected_pollutant, selected_sensor_types, sel
     print(f"  - selected_map_style: {selected_map_style}")
     print(f"[DEBUG] Map callback states:")
     print(f"  - selected_individual_sensors: {selected_individual_sensors}")
+    print(f"[DEBUG] relayoutData: {relayout}")
+    
+    # Get current zoom and center from relayoutData
+    zoom = 11.3  # sensible default
+    center = {'lat': 51.445, 'lon': -0.22}  # sensible default
+    if relayout:
+        if 'map.zoom' in relayout:
+            zoom = relayout['map.zoom']
+        if 'map.center' in relayout:
+            center = relayout['map.center']
+    
+    print(f"[DEBUG] Current zoom: {zoom}, center: {center}")
     
     # Always show all relevant sensor locations, even if no data for selected pollutant/period
     all_sensors = df[['site_code', 'borough', 'lat', 'lon', 'sensor_type']].drop_duplicates()
@@ -429,13 +443,17 @@ def update_map(selected_boroughs, selected_pollutant, selected_sensor_types, sel
         val = sensor_value_map.get(row['site_code'], None)
         marker_colors.append(get_color_for_value(val, selected_pollutant, selected_color_scale))
     
+    marker_size = marker_size_for_zoom(zoom)
+    
+    print(f"[DEBUG] Map zoom: {zoom}, marker_size: {marker_size}")
+    
     fig = go.Figure()
     fig.add_trace(go.Scattermap(
         lat=sensors_with_data['lat'],
         lon=sensors_with_data['lon'],
         mode='markers+text',
         marker=dict(
-            size=20,
+            size=marker_size,
             color=marker_colors,
             opacity=0.95,
             allowoverlap=True
@@ -485,11 +503,11 @@ def update_map(selected_boroughs, selected_pollutant, selected_sensor_types, sel
 
     # Update layout with only the color scale legend
     fig.update_layout(
-        uirevision="stay",
+        uirevision=f"zoom_{zoom}",  # Dynamic uirevision that changes with zoom
         map=dict(
             style=selected_map_style,
-            center=map_view['center'],
-            zoom=map_view['zoom']
+            center=center,
+            zoom=zoom
         ),
         margin=dict(l=0, r=0, t=0, b=0),
         showlegend=False,
@@ -825,7 +843,7 @@ COLOR_SCALES = {
         'UK': {
             'name': 'UK Legal Limits',
             'ranges': [
-                (0, 40, 'Moderate', '#00ff00'),      # green
+                (0, 40, 'Moderate', '#ffa500'),      # green
                 (40, 60, 'Poor', '#ffa500'),          # Orange
                 (60, float('inf'), 'Very Poor', '#ff0000')  # Red - UK legal limit
             ]
@@ -1290,6 +1308,10 @@ def set_chart_expanded(n, expanded):
     if n is None:
         return False
     return not expanded
+
+def marker_size_for_zoom(zoom, base_zoom=12, base_size=20):
+    """Dramatically scale marker size with zoom level."""
+    return max(9, int(base_size *1.2**(zoom - base_zoom)))  
     
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
