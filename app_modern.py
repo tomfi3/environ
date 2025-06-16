@@ -1262,5 +1262,6 @@ def set_chart_expanded(n, expanded):
         return False
     return not expanded
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8050) 
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))   # 10000 is a safe default
+    app.run(server="0.0.0.0", port=port, debug=False)
