@@ -1113,27 +1113,23 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
      Input('map-graph', 'selectedData'),
      Input('map-graph', 'clickData'),
      Input('selected-pollutant', 'data'),
-     Input('selected-averaging', 'data')],
+     Input('selected-averaging', 'data'),
+     Input('selected-year', 'data'),
+     Input('selected-month', 'data')],
     prevent_initial_call=False
 )
-def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging):
+def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging, selected_year, selected_month):
     all_sensors = []
     if dropdown_sensors:
         all_sensors.extend(dropdown_sensors)
-    
     if lasso_data and 'points' in lasso_data:
         lasso_sensors = [point['text'] for point in lasso_data['points'] if 'text' in point]
         all_sensors.extend(lasso_sensors)
-    
     if click_data and 'points' in click_data:
         click_sensors = [point['text'] for point in click_data['points'] if 'text' in point]
         all_sensors.extend(click_sensors)
-    
-    # Remove duplicates
     all_sensors = list(set(all_sensors))
-    
     print(f"[DEBUG] Bar chart - selected sensors: {all_sensors}")
-    
     if not all_sensors:
         fig = go.Figure()
         fig.add_annotation(
@@ -1150,17 +1146,18 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             paper_bgcolor='white',
             xaxis=dict(tickangle=45),
             yaxis=dict(showticklabels=False, range=[0, None]),
-            shapes=ref_lines
+            shapes=[]
         )
         return fig
-    
-    # Filter data for selected sensors
+    # Filter data for selected sensors, pollutant, averaging period, and time period
     chart_data = df[
         (df['site_code'].isin(all_sensors)) &
         (df['pollutant'] == selected_pollutant) &
-        (df['averaging_period'] == selected_averaging)
+        (df['averaging_period'] == selected_averaging) &
+        (df['year'] == selected_year)
     ].copy()
-    
+    if selected_averaging == 'Month':
+        chart_data = chart_data[chart_data['month'] == selected_month]
     if len(chart_data) == 0:
         fig = go.Figure()
         fig.add_annotation(
@@ -1177,16 +1174,13 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             paper_bgcolor='white',
             xaxis=dict(tickangle=45),
             yaxis=dict(showticklabels=False, range=[0, None]),
-            shapes=ref_lines
+            shapes=[]
         )
         return fig
-    
     # Create bar chart - average values by sensor
     sensor_avg = chart_data.groupby('site_code')['value'].mean().reset_index()
     sensor_avg = sensor_avg.sort_values('value', ascending=False)
-    
     fig = go.Figure()
-    
     fig.add_trace(go.Bar(
         x=sensor_avg['site_code'],
         y=sensor_avg['value'],
@@ -1195,7 +1189,6 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
         marker_line_width=1,
         opacity=0.8
     ))
-    
     # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
     ref_lines = []
     if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
@@ -1205,7 +1198,6 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
         if selected_pollutant in uk_limits:
             ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
-    
     fig.update_layout(
         height=170,
         margin=dict(l=40, r=40, t=40, b=40),
@@ -1215,7 +1207,6 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
         yaxis=dict(showticklabels=False, range=[0, None]),
         shapes=ref_lines
     )
-    
     return fig
 
 # Callback for Clear Map Selection button
@@ -1299,6 +1290,7 @@ def set_chart_expanded(n, expanded):
     if n is None:
         return False
     return not expanded
+    
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
