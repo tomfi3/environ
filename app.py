@@ -11,7 +11,6 @@ from dash import ctx
 from dash.dependencies import ALL
 import json
 
-# CREATE THE APP  (do this once, outside any function)
 
 SYMBOL_MAP = {
     "DT": "square",
