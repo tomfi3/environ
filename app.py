@@ -19,22 +19,28 @@ SYMBOL_MAP = {
 }
 
 # Load data from CSV file
-# Load data from CSV file
-def load_data():
-    """Load environmental data from a local CSV shipped with the app"""
-    # Build an absolute path that works on Render or locally
-    csv_path = os.path.join(
-        os.path.dirname(__file__),  # folder where app.py lives
-        "data",
-        "environmental_data_merged.csv"
-    )
-    df = pd.read_csv(csv_path)
+# ---------------- load_data()  -----------------
+import sys                           #  ←― ① add
+from pathlib import Path             #  ←― ② add
 
-    # Standardize Richmond borough names
-    df["borough"] = df["borough"].replace(
-        to_replace=r"(?i)richmond.*", value="Richmond", regex=True
+def load_data():
+    """Load environmental data from a local CSV shipped with the app."""
+    csv_path = (
+        Path(__file__).resolve().parent        # folder containing app.py
+        / "data"
+        / "environmental_data_merged.csv"
     )
+
+    # ③ DEBUG – will show in Render logs
+    print(f"[DEBUG] csv_path = {csv_path}  |  exists? {csv_path.exists()}",
+          file=sys.stderr)
+
+    df = pd.read_csv(csv_path)       # will raise FileNotFoundError if False above
+
+    # Standardise Richmond spelling
+    df["borough"] = df["borough"].replace(r"(?i)richmond.*", "Richmond", regex=True)
     return df
+
 
 
 # Borough name mapping for short labels
