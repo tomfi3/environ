@@ -1265,3 +1265,6 @@ def set_chart_expanded(n, expanded):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+# Expose the server for gunicorn
+server = app.server
