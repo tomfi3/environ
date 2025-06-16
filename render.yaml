@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: air-quality-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app_modern:app.server    # <file>:<Dash server>
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
