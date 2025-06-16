@@ -11,7 +11,14 @@ from dash import ctx
 from dash.dependencies import ALL
 import json
 
-# Add this after imports, before any callbacks or functions
+# CREATE THE APP  (do this once, outside any function)
+app = dash.Dash(__name__)           # Dash app wrapper
+server = app.server                 # <- optional, useful for gunicorn app:server
+
+# APP CONFIG/OPTIONS (optional)
+app.title = "London Environmental Dashboard"
+
+
 SYMBOL_MAP = {
     "DT": "square",
     "Clarity": "circle",
