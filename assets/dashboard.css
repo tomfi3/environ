@@ -281,12 +281,12 @@
 }
 
 .time-series-graph {
-    height: 150px;
+    height: 170px;
     width: 100%;
 }
 
 .bar-graph {
-    height: 150px;
+    height: 170px;
     width: 100%;
 }
 
@@ -592,7 +592,7 @@
 :root {
     --sidebar-width: 280px;
     --dashboard-gap: 20px;
-    --small-chart-height: 210px;   /* 170 graph + 40 padding/header  */
+    --small-chart-height: 230px;   /* 170 graph + 40 padding/header  */
     --stack-gap:          16px;    /* already your gap value         */
 }
 
@@ -898,4 +898,13 @@
     font-size: 12px;
     padding: 4px 8px;
     border-radius: 4px;
+}
+
+/* Make small charts overfill their containers by 10px on left, right, and bottom */
+#small-charts-stack .card .js-plotly-plot {
+    margin-left: -15px;
+    margin-right: -15px;
+    margin-bottom: -15px;
+    width: calc(100% + 15px) !important;
+    height: calc(100% + 15px) !important;
 } 
