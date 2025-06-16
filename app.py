@@ -803,31 +803,31 @@ COLOR_SCALES = {
         'WHO': {
             'name': 'WHO Guidelines',
             'ranges': [
-                (0, 10, 'Excellent', '#00ff00'),      # Green - WHO guideline
-                (10, 20, 'Good', '#ffff00'),          # Yellow
-                (20, 30, 'Moderate', '#ffa500'),      # Orange
-                (30, 40, 'Poor', '#ff6600'),          # Dark Orange
-                (40, float('inf'), 'Very Poor', '#ff0000')  # Red - UK legal limit
+                (0, 10, 'WHO compliant', '#ccffff'),      # grey - WHO guideline
+                (10, 20, 'Good', '#33ccff'),          # blue
+                (20, 30, 'Moderate', '#00ffcc'),      # turq
+                (30, 40, 'UK Limit compliant', '#00ff00'),          # green
+                (40, 60, 'Poor', '#ffa500'),          # orange
+                (60, 100, 'Very Poor', '#ff0000'),          # red
+                (100, float('inf'), 'Extremly Poor', '#660033')  # purplet
             ]
         },
         'Borough': {
             'name': 'Borough Standards',
             'ranges': [
-                (0, 15, 'Excellent', '#00ff00'),      # Green
-                (15, 25, 'Good', '#ffff00'),          # Yellow
-                (25, 35, 'Moderate', '#ffa500'),      # Orange
-                (35, 45, 'Poor', '#ff6600'),          # Dark Orange
-                (45, float('inf'), 'Very Poor', '#ff0000')  # Red
+                (0, 10, 'Excellent', '#ccffff'),      # grey
+                (10, 30, 'Good', '#33ccff'),          # blue
+                (30, 40, 'Moderate', '#00ff00'),      # green
+                (40, 60, 'Poor', '#ffa500'),          # orange
+                (60, float('inf'), 'Very Poor', '#ff0000')  # Red
             ]
         },
         'UK': {
             'name': 'UK Legal Limits',
             'ranges': [
-                (0, 20, 'Excellent', '#00ff00'),      # Green
-                (20, 30, 'Good', '#ffff00'),          # Yellow
-                (30, 40, 'Moderate', '#ffa500'),      # Orange
-                (40, 50, 'Poor', '#ff6600'),          # Dark Orange
-                (50, float('inf'), 'Very Poor', '#ff0000')  # Red - UK legal limit
+                (0, 40, 'Moderate', '#ffa500'),      # green
+                (40, 60, 'Poor', '#ffa500'),          # Orange
+                (60, float('inf'), 'Very Poor', '#ff0000')  # Red - UK legal limit
             ]
         }
     },
