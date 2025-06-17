@@ -231,6 +231,7 @@ app.layout = html.Div([
     dcc.Store(id='map-view-store', data={'center': {'lat': 51.445, 'lon': -0.22}, 'zoom': 11.3}),
     dcc.Store(id='map-expanded', data=False),
     dcc.Store(id='chart-expanded', data=False),
+    dcc.Store(id='legend-mode-store', data=0),
     
     # Main Content
     html.Div([
@@ -282,9 +283,10 @@ app.layout = html.Div([
             html.Div([
                 html.Div([
                     html.H3("Detailed Analysis", className="card-title"),
-                    html.Button(
-                        "Expand Chart", id="expand-chart-btn", className="expand-button"
-                    )
+                    html.Div([
+                        html.Button('Legend Mode', id='toggle-legend-btn', className='expand-button'),
+                        html.Button("Expand Chart", id="expand-chart-btn", className="expand-button")
+                    ], style={'display': 'flex', 'gap': '8px', 'marginLeft': 'auto'})
                 ], className="card-header"),
                 html.Div(
                     id='detailed-chart-container',
@@ -389,10 +391,11 @@ def update_selected_map_style(style):
      Input('selected-month', 'data'),
      Input('selected-color-scale', 'data'),
      Input('selected-map-style', 'data')],
-    [State('selected-individual-sensors', 'data')],
+    [State('selected-individual-sensors', 'data'),
+     State('map-view-store', 'data')],
     prevent_initial_call=False
 )
-def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_types, selected_averaging, selected_year, selected_month, selected_color_scale, selected_map_style, selected_individual_sensors):
+def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_types, selected_averaging, selected_year, selected_month, selected_color_scale, selected_map_style, selected_individual_sensors, map_view_store):
     print(f"[DEBUG] Map callback inputs:")
     print(f"  - selected_boroughs: {selected_boroughs}")
     print(f"  - selected_pollutant: {selected_pollutant}")
@@ -405,16 +408,14 @@ def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_
     print(f"[DEBUG] Map callback states:")
     print(f"  - selected_individual_sensors: {selected_individual_sensors}")
     print(f"[DEBUG] relayoutData: {relayout}")
-    
-    # Get current zoom and center from relayoutData
-    zoom = 11.3  # sensible default
-    center = {'lat': 51.445, 'lon': -0.22}  # sensible default
+    # Use map_view_store for zoom/center unless relayoutData provides new values
+    zoom = map_view_store.get('zoom', 11.3) if map_view_store else 11.3
+    center = map_view_store.get('center', {'lat': 51.445, 'lon': -0.22}) if map_view_store else {'lat': 51.445, 'lon': -0.22}
     if relayout:
         if 'map.zoom' in relayout:
             zoom = relayout['map.zoom']
         if 'map.center' in relayout:
             center = relayout['map.center']
-    
     print(f"[DEBUG] Current zoom: {zoom}, center: {center}")
     
     # Always show all relevant sensor locations, even if no data for selected pollutant/period
@@ -503,7 +504,7 @@ def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_
 
     # Update layout with only the color scale legend
     fig.update_layout(
-        uirevision=f"zoom_{zoom}",  # Dynamic uirevision that changes with zoom
+        uirevision=f"mapview_{zoom}_{center['lat']}_{center['lon']}",  # Stable uirevision
         map=dict(
             style=selected_map_style,
             center=center,
@@ -524,12 +525,16 @@ def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_
      Input('map-graph', 'clickData'),
      Input('selected-pollutant', 'data'),
      Input('selected-averaging', 'data'),
+     Input('selected-month', 'data'),
      Input('chart-start-date', 'date'),
      Input('chart-end-date', 'date'),
-     Input('update-chart-button', 'n_clicks')],
+     Input('update-chart-button', 'n_clicks'),
+     Input('chart-expanded', 'data'),
+     Input('legend-mode-store', 'data')],
     prevent_initial_call=False
 )
-def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging, chart_start_date, chart_end_date, n_clicks):
+def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging, selected_month, chart_start_date, chart_end_date, n_clicks, chart_expanded, legend_mode):
+    ref_lines = []  # Always define this at the top
     all_sensors = []
     if dropdown_sensors:
         all_sensors.extend(dropdown_sensors)
@@ -540,6 +545,9 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
         click_sensors = [point['text'] for point in click_data['points'] if 'text' in point]
         all_sensors.extend(click_sensors)
     all_sensors = list(set(all_sensors))
+    print(f"[DEBUG] update_detailed_chart: all_sensors={all_sensors}")
+    print(f"[DEBUG] selected_averaging={selected_averaging}, selected_month={selected_month}")
+    print(f"[DEBUG] chart_expanded={chart_expanded}")
     if not all_sensors:
         fig = go.Figure()
         fig.add_annotation(
@@ -560,7 +568,8 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
                 mirror=True,
                 gridcolor='#e0e0e0',
                 zeroline=True,
-                zerolinecolor='black'
+                zerolinecolor='black',
+                title="Year"
             ),
             yaxis=dict(
                 showline=True,
@@ -570,14 +579,20 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
                 gridcolor='#e0e0e0',
                 zeroline=True,
                 zerolinecolor='black',
-                range=[0, 1]
+                range=[0, 1],
+                title=f"{selected_pollutant} Concentration (μg/m³)"
             ),
         )
         return fig
+    # Filter by averaging_period (Annual or Month), pollutant, and selected sensors
     chart_data = df[
         (df['site_code'].isin(all_sensors)) &
-        (df['pollutant'] == selected_pollutant)
+        (df['pollutant'] == selected_pollutant) &
+        (df['averaging_period'] == selected_averaging)
     ].copy()
+    # Do NOT filter by year or month in monthly mode; show all months across all years
+    print(f"[DEBUG] chart_data shape after filtering: {chart_data.shape}")
+    print(f"[DEBUG] chart_data sample:\n{chart_data.head()}")
     if len(chart_data) == 0:
         fig = go.Figure()
         fig.add_annotation(
@@ -598,7 +613,8 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
                 mirror=True,
                 gridcolor='#e0e0e0',
                 zeroline=True,
-                zerolinecolor='black'
+                zerolinecolor='black',
+                title="Year"
             ),
             yaxis=dict(
                 showline=True,
@@ -608,12 +624,26 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
                 gridcolor='#e0e0e0',
                 zeroline=True,
                 zerolinecolor='black',
-                range=[0, 1]
+                range=[0, 1],
+                title=f"{selected_pollutant} Concentration (μg/m³)"
             ),
         )
         return fig
-    fig = go.Figure()
+    
+    # Build sensor_names for all selected sensors using the main df
+    sensor_names = {}
+    for sensor in all_sensors:
+        sensor_row = df[df['site_code'] == sensor]
+        if not sensor_row.empty:
+            sensor_names[sensor] = sensor_row.iloc[0]['site_name']
+        else:
+            sensor_names[sensor] = sensor
+    
+    # Create traces and track last values for sorting
+    traces = []
+    last_values = {}
     max_y = 0
+    
     for sensor in all_sensors:
         sensor_data = chart_data[chart_data['site_code'] == sensor]
         if len(sensor_data) > 0:
@@ -622,28 +652,131 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
             else:
                 sensor_data['date'] = pd.to_datetime(sensor_data['year'], format='%Y')
             sensor_data = sensor_data.sort_values('date')
-            fig.add_trace(go.Scatter(
+            
+            # Track last value for sorting
+            last_value = sensor_data['value'].iloc[-1]
+            last_values[sensor] = last_value
+            max_y = max(max_y, sensor_data['value'].max())
+            
+            # Create legend name based on expanded mode
+            if chart_expanded:
+                legend_name = f"{sensor}: {sensor_names.get(sensor, sensor)}"
+            else:
+                legend_name = sensor
+            
+            traces.append(go.Scatter(
                 x=sensor_data['date'],
                 y=sensor_data['value'],
                 mode='lines+markers',
-                name=sensor,
+                name=legend_name,
                 line=dict(width=2),
                 marker=dict(size=4)
             ))
-            max_y = max(max_y, sensor_data['value'].max())
+    
+    # Sort traces by last value (descending)
+    sorted_traces = sorted(traces, key=lambda trace: last_values.get(trace.name.split(':')[0] if ':' in trace.name else trace.name, 0), reverse=True)
+    
+    fig = go.Figure(data=sorted_traces)
+    
     # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
     ref_lines = []
+    ref_annotations = []
+    min_ymax = 1.05 * max_y
+    if selected_pollutant == "NO2":
+        min_ymax = max(min_ymax, 50)
+    elif selected_pollutant in ["PM2.5", "PM10"]:
+        min_ymax = max(min_ymax, 30)
     if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
         who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
         uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
         if selected_pollutant in who_limits:
             ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+            ref_annotations.append(dict(
+                x=0.01, y=who_limits[selected_pollutant]+2 if selected_pollutant=="NO2" else who_limits[selected_pollutant]+1,
+                xref='paper', yref='y',
+                text='WHO Guideline',
+                showarrow=False, xanchor='left', yanchor='bottom',
+                font=dict(size=11, color='green'),
+                align='left',
+                bgcolor='rgba(255,255,255,0.7)',
+                borderpad=2,
+                bordercolor='green',
+                borderwidth=0
+            ))
         if selected_pollutant in uk_limits:
             ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
+            ref_annotations.append(dict(
+                x=0.01, y=uk_limits[selected_pollutant]+2 if selected_pollutant=="NO2" else uk_limits[selected_pollutant]+1,
+                xref='paper', yref='y',
+                text='UK Limit',
+                showarrow=False, xanchor='left', yanchor='bottom',
+                font=dict(size=11, color='red'),
+                align='left',
+                bgcolor='rgba(255,255,255,0.7)',
+                borderpad=2,
+                bordercolor='red',
+                borderwidth=0
+            ))
+    
+    # Create chart title based on averaging period and pollutant
+    if selected_averaging == 'Annual':
+        chart_title = f"Chart of Annual Average {selected_pollutant}"
+    else:
+        chart_title = f"Chart of Monthly Average {selected_pollutant}"
+    
+    # Configure legend based on expanded mode
+    bottom_margin = 40  # Default for collapsed mode
+    if chart_expanded:
+        # Expanded mode: legend below chart, horizontal, full width, allow auto-wrapping
+        legend_config = dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.25,  # Further below the chart and axis
+            xanchor="center",
+            x=0.5,  # Center horizontally
+            font=dict(family="monospace", size=12),  # Larger text
+            bgcolor='rgba(255,255,255,0.9)'
+        )
+        bottom_margin = 120
+    else:
+        # Collapsed mode: legend to the right, vertical
+        legend_config = dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,  # To the right of chart
+            font=dict(family="monospace", size=12),  # Larger text
+            bgcolor='rgba(255,255,255,0.9)'
+        )
+    
+    # Legend content and config by mode
+    if legend_mode == 0:
+        legend_names = {s: s for s in all_sensors}
+        legend_config = dict(orientation='v', yanchor='top', y=1, xanchor='left', x=1.02, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.9)')
+        showlegend = True
+    elif legend_mode == 1:
+        legend_names = {s: f"{s}: {sensor_names.get(s, s)}" for s in all_sensors}
+        legend_config = dict(orientation='v', yanchor='top', y=1, xanchor='left', x=1.02, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.9)')
+        showlegend = True
+    elif legend_mode == 2:
+        legend_names = {s: f"{s}: {sensor_names.get(s, s)}" for s in all_sensors}
+        legend_config = dict(orientation='h', yanchor='top', y=-0.25, xanchor='center', x=0.5, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.9)')
+        showlegend = True
+    elif legend_mode == 3:
+        legend_names = {s: s for s in all_sensors}
+        legend_config = dict(orientation='v', yanchor='top', y=1, xanchor='right', x=1, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.7)')
+        showlegend = True
+    else:
+        legend_names = {s: s for s in all_sensors}
+        legend_config = dict(font=dict(family='monospace', size=12))
+        showlegend = False
+    
     fig.update_layout(
-        title=dict(text="Detailed Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
+        title=dict(text=chart_title, font=dict(color='black', size=14), x=0.5, xanchor='center'),
         plot_bgcolor='white',
         paper_bgcolor='white',
+        margin=dict(l=40, r=40, t=40, b=bottom_margin),
         xaxis=dict(
             showline=True,
             linewidth=2,
@@ -651,7 +784,8 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
             mirror=True,
             gridcolor='#e0e0e0',
             zeroline=True,
-            zerolinecolor='black'
+            zerolinecolor='black',
+            title="Year"
         ),
         yaxis=dict(
             showline=True,
@@ -661,9 +795,12 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
             gridcolor='#e0e0e0',
             zeroline=True,
             zerolinecolor='black',
-            range=[0, max_y * 1.05]
+            range=[0, min_ymax],
+            title=f"{selected_pollutant} Concentration (μg/m³)"
         ),
-        shapes=ref_lines
+        legend=legend_config,
+        shapes=ref_lines,
+        annotations=ref_annotations
     )
     return fig
 
@@ -699,12 +836,12 @@ def update_borough_selection(n_clicks, current_selection):
     [Input({'type': 'pollutant-btn', 'index': ALL}, 'n_clicks')],
     prevent_initial_call=False
 )
-def update_pollutant_selection(n_clicks):
-    if not n_clicks or not any(n_clicks):
+def update_pollutant_selection(_):
+    trig = dash.callback_context.triggered_id
+    if trig is None:
         selected_pollutant = 'NO2'
     else:
-        clicked_idx = max((i for i, v in enumerate(n_clicks) if v), key=lambda i: n_clicks[i])
-        selected_pollutant = pollutants[clicked_idx]
+        selected_pollutant = trig["index"]
     button_classes = [
         f"filter-button single-select {'selected' if pollutant == selected_pollutant else ''}"
         for pollutant in pollutants
@@ -719,36 +856,23 @@ def update_pollutant_selection(n_clicks):
     [State('selected-sensor-types', 'data')],
     prevent_initial_call=False
 )
-def update_sensor_type_selection(n_clicks, current_selection):
-    ctx = dash.callback_context
-    
-    # Handle initial load - return default state with all sensor types selected
-    if not ctx.triggered:
-        return sensor_types, [
-            f"filter-button multi-select selected"
-            for sensor in sensor_types
-        ]
-    
-    current = current_selection or sensor_types
-    
-    if not n_clicks or not any(n_clicks):
-        # If no clicks, return current selection
-        return current, [
-            f"filter-button multi-select {'selected' if sensor in current else ''}"
-            for sensor in sensor_types
-        ]
-    
-    clicked_idx = max((i for i, v in enumerate(n_clicks) if v), key=lambda i: n_clicks[i])
-    clicked_sensor = sensor_types[clicked_idx]
-    
-    if clicked_sensor in current:
-        new_selection = [s for s in current if s != clicked_sensor]
+def update_sensor_type_selection(_, current_selection):
+    trig = dash.callback_context.triggered_id
+    if trig is None:
+        current_selection = sensor_types
+        return (
+            current_selection,
+            [f"filter-button multi-select selected" for _ in sensor_types]
+        )
+    clicked_sensor = trig["index"]
+    current_selection = current_selection or sensor_types
+    if clicked_sensor in current_selection:
+        new_selection = [s for s in current_selection if s != clicked_sensor]
     else:
-        new_selection = current + [clicked_sensor]
-    
+        new_selection = current_selection + [clicked_sensor]
     button_classes = [
-        f"filter-button multi-select {'selected' if sensor in new_selection else ''}"
-        for sensor in sensor_types
+        f"filter-button multi-select {'selected' if s in new_selection else ''}"
+        for s in sensor_types
     ]
     return new_selection, button_classes
 
@@ -758,13 +882,13 @@ def update_sensor_type_selection(n_clicks, current_selection):
     [Input({'type': 'averaging-btn', 'index': ALL}, 'n_clicks')],
     prevent_initial_call=False
 )
-def update_averaging_selection(n_clicks):
+def update_averaging_selection(_):
     periods = ['Annual', 'Month']
-    if not n_clicks or not any(n_clicks):
+    trig = dash.callback_context.triggered_id
+    if trig is None:
         selected_period = 'Annual'
     else:
-        clicked_idx = max((i for i, v in enumerate(n_clicks) if v), key=lambda i: n_clicks[i])
-        selected_period = periods[clicked_idx]
+        selected_period = trig["index"]
     button_classes = [
         f"filter-button single-select {'selected' if period == selected_period else ''}"
         for period in periods
@@ -776,13 +900,13 @@ def update_averaging_selection(n_clicks):
      Output({'type': 'color-scale-btn', 'index': ALL}, 'className')],
     [Input({'type': 'color-scale-btn', 'index': ALL}, 'n_clicks')]
 )
-def update_color_scale_selection(n_clicks):
+def update_color_scale_selection(_):
     scales = ['WHO', 'Borough', 'UK']
-    if not n_clicks or not any(n_clicks):
+    trig = dash.callback_context.triggered_id
+    if trig is None:
         selected_scale = 'WHO'
     else:
-        clicked_idx = max((i for i, v in enumerate(n_clicks) if v), key=lambda i: n_clicks[i])
-        selected_scale = scales[clicked_idx]
+        selected_scale = trig["index"]
     button_classes = [
         f"filter-button single-select {'selected' if scale == selected_scale else ''}"
         for scale in scales
@@ -1013,19 +1137,16 @@ def clear_sensor_selection(n_clicks):
     prevent_initial_call=False
 )
 def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging):
+    ref_lines = []  # Always define this at the top
     all_sensors = []
     if dropdown_sensors:
         all_sensors.extend(dropdown_sensors)
-    
     if lasso_data and 'points' in lasso_data:
         lasso_sensors = [point['text'] for point in lasso_data['points'] if 'text' in point]
         all_sensors.extend(lasso_sensors)
-    
     if click_data and 'points' in click_data:
         click_sensors = [point['text'] for point in click_data['points'] if 'text' in point]
         all_sensors.extend(click_sensors)
-    
-    # Remove duplicates
     all_sensors = list(set(all_sensors))
     
     print(f"[DEBUG] Time series chart - selected sensors: {all_sensors}")
@@ -1045,10 +1166,26 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
             plot_bgcolor='white',
             paper_bgcolor='white',
             showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            yaxis=dict(showticklabels=False, range=[0, None]),
-            shapes=ref_lines
+            legend=dict(
+                orientation="h", 
+                yanchor="bottom", 
+                y=1.02, 
+                xanchor="right", 
+                x=1,
+                font=dict(family="monospace", size=10),  # Narrow font for legend
+                bgcolor='rgba(255,255,255,0.9)'
+            ),
+            yaxis=dict(
+                showticklabels=False, 
+                range=[0, None], 
+                fixedrange=False, 
+                autorange=True
+            ),
+            shapes=ref_lines,
+            xaxis=dict(title="Year")
         )
+        # Always show y=0
+        fig.update_yaxes(range=[0, None])
         return fig
     
     # Filter data for selected sensors
@@ -1073,10 +1210,26 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
             plot_bgcolor='white',
             paper_bgcolor='white',
             showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            yaxis=dict(showticklabels=False, range=[0, None]),
-            shapes=ref_lines
+            legend=dict(
+                orientation="h", 
+                yanchor="bottom", 
+                y=1.02, 
+                xanchor="right", 
+                x=1,
+                font=dict(family="monospace", size=10),  # Narrow font for legend
+                bgcolor='rgba(255,255,255,0.9)'
+            ),
+            yaxis=dict(
+                showticklabels=False, 
+                range=[0, None], 
+                fixedrange=False, 
+                autorange=True
+            ),
+            shapes=ref_lines,
+            xaxis=dict(title="Year")
         )
+        # Always show y=0
+        fig.update_yaxes(range=[0, None])
         return fig
     
     # Create time series chart
@@ -1117,11 +1270,26 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
         plot_bgcolor='white',
         paper_bgcolor='white',
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis=dict(showticklabels=False, range=[0, None]),
-        shapes=ref_lines
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", 
+            y=1.02, 
+            xanchor="right", 
+            x=1,
+            font=dict(family="monospace", size=10),  # Narrow font for legend
+            bgcolor='rgba(255,255,255,0.9)'
+        ),
+        yaxis=dict(
+            showticklabels=False, 
+            range=[0, None], 
+            fixedrange=False, 
+            autorange=True
+        ),
+        shapes=ref_lines,
+        xaxis=dict(title="Year")
     )
-    
+    # Always show y=0
+    fig.update_yaxes(range=[0, None])
     return fig
 
 # Callback for bar chart (small chart)
@@ -1309,9 +1477,21 @@ def set_chart_expanded(n, expanded):
         return False
     return not expanded
 
+@callback(
+    Output('legend-mode-store', 'data'),
+    Input('toggle-legend-btn', 'n_clicks'),
+    State('legend-mode-store', 'data'),
+    prevent_initial_call=False
+)
+def cycle_legend_mode(n_clicks, current_mode):
+    if n_clicks is None:
+        return 0
+    return (current_mode + 1) % 5
+
 def marker_size_for_zoom(zoom, base_zoom=12, base_size=20):
     """Dramatically scale marker size with zoom level."""
-    return max(7, int(base_size *1.2**(zoom - base_zoom)))  
+    return max(7, int(base_size *1.2**(zoom - base_zoom)))
+ 
     
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
