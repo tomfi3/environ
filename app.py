@@ -704,7 +704,6 @@ app.layout = html.Div(
                                                 'marginTop': '16px',
                                                 'marginBottom': '8px'
                                             }),
-
                                         html.Div([
                                             html.Label("Y-Axis Max Height (Optional)",
                                                        style={
