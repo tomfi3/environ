@@ -1300,7 +1300,7 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant,
                 ref_annotations.append(
                     dict(x=0.02, y=uk_limits[selected_pollutant], 
                          xref="paper", yref="y",
-                         text="UK Legal Limit", showarrow=False,
+                         text="National Air Quality Objective", showarrow=False,
                          xanchor="left", yanchor="bottom",
                          font=dict(color="red", size=10),
                          bgcolor="rgba(255,255,255,0.8)"))
