@@ -273,6 +273,7 @@ app.layout = html.Div([
     dcc.Store(id='map-expanded', data=False),
     dcc.Store(id='chart-expanded', data=False),
     dcc.Store(id='legend-mode-store', data=0),
+    dcc.Store(id='custom-title-store', data=None),
     
     # Main Content
     html.Div([
@@ -373,7 +374,14 @@ app.layout = html.Div([
                             className="dropdown-style"
                         )
                     ], style={'marginBottom': '12px'}),
-                    html.Button("Update Chart", id="update-chart-button", className="export-button")
+                    html.Button("Update Chart", id="update-chart-button", className="export-button"),
+                    # --- Custom Chart Title Tool ---
+                    html.Div([
+                        html.Label("Custom Chart Title", style={'fontWeight': '500', 'marginBottom': '4px', 'display': 'block', 'fontSize': '12px'}),
+                        dcc.Input(id='custom-title-input', type='text', placeholder='Enter custom title...', className='dropdown-style', style={'width': '70%', 'marginRight': '8px'}),
+                        html.Button('Apply Title', id='apply-title-btn', className='export-button', n_clicks=0, style={'marginRight': '8px'}),
+                        html.Button('Reset Title', id='reset-title-btn', className='export-button', n_clicks=0)
+                    ], style={'marginTop': '16px', 'marginBottom': '8px'}),
                 ], className="card"),
                 html.Div([
                     html.H3("Table Tools", className="card-title"),
@@ -636,10 +644,11 @@ def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_
      Input('chart-end-date', 'date'),
      Input('update-chart-button', 'n_clicks'),
      Input('chart-expanded', 'data'),
-     Input('legend-mode-store', 'data')],
+     Input('legend-mode-store', 'data'),
+     Input('custom-title-store', 'data')],
     prevent_initial_call=False
 )
-def update_detailed_chart(dropdown_sensors, selected_pollutant, selected_averaging, chart_start_date, chart_end_date, n_clicks, chart_expanded, legend_mode):
+def update_detailed_chart(dropdown_sensors, selected_pollutant, selected_averaging, chart_start_date, chart_end_date, n_clicks, chart_expanded, legend_mode, custom_title):
     ref_lines = []  # Always define this at the top
     all_sensors = dropdown_sensors or []
     all_sensors = list(set(all_sensors))  # Ensure no duplicates
@@ -764,7 +773,9 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant, selected_averagi
                 ))
         
         # Create chart title based on averaging period and pollutant
-        if selected_averaging == 'Annual':
+        if custom_title:
+            chart_title = custom_title
+        elif selected_averaging == 'Annual':
             chart_title = f"Chart of Annual Average {selected_pollutant}"
         else:
             chart_title = f"Chart of Monthly Average {selected_pollutant}"
@@ -1661,6 +1672,26 @@ def clear_sensor_selection(n_clicks):
         return []
     return dash.no_update
 
+# Add callback to handle custom title logic
+from dash import no_update
+@callback(
+    Output('custom-title-store', 'data'),
+    [Input('apply-title-btn', 'n_clicks'), Input('reset-title-btn', 'n_clicks')],
+    State('custom-title-input', 'value'),
+    State('custom-title-store', 'data'),
+    prevent_initial_call=True
+)
+def handle_custom_title(apply_clicks, reset_clicks, input_value, current_store):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if button_id == 'apply-title-btn' and input_value:
+        return input_value
+    elif button_id == 'reset-title-btn':
+        return None
+    return no_update
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
@@ -1668,3 +1699,4 @@ if __name__ == "__main__":
 
 # Expose the server for gunicorn
 server = app.server
+
