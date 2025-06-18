@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import supabase
 print("Supabase version:", supabase.__version__)
-from supabase import create_client, Client
+from supabase.client import create_client, Client
 from typing import List, Dict, Optional, Tuple
 import logging
 from datetime import date
