@@ -244,7 +244,7 @@ app.layout = html.Div(
                                    }),
                         html.Div([
                             html.Button(
-                                "PM2.5" if pollutant == "PM25" else pollutant,
+                                pollutant,
                                 id={
                                     'type': 'pollutant-btn',
                                     'index': pollutant
