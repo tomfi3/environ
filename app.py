@@ -1310,7 +1310,7 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant,
             legend_config = dict(font=dict(family='monospace', size=12))
             
         # --- Y-axis handling ---
-        auto_ymax = chart_data['value'].max() if not chart_data.empty else 50
+        auto_ymax = chart_data['value'].max()+5 if not chart_data.empty else 50
         min_ymax = 50
         
         # Apply user Y height if enabled
