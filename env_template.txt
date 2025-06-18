@@ -1,0 +1,10 @@
+# Supabase Configuration
+# Copy this file to .env and replace with your actual values
+# You can find these in your Supabase project dashboard under Settings > API
+
+SUPABASE_URL=your_supabase_project_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# Example:
+# SUPABASE_URL=https://abcdefghijklmnop.supabase.co
+# SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... 

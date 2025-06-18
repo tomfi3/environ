@@ -1,0 +1,111 @@
+# this file descibes the database in supabse that app.modern.py connects to
+
+-- DROP VIEWS FIRST
+drop view if exists map_monthly_data;
+drop view if exists active_sensors;
+
+-- DROP TABLES IN ORDER
+drop table if exists annual_averages;
+drop table if exists monthly_averages;
+drop table if exists daily_averages;
+drop table if exists hourly_data;
+drop table if exists sensors;
+
+-- SENSOR METADATA TABLE
+create table sensors (
+  id_installation text primary key,           -- e.g., MEDT0001
+  id_site text not null,                      -- site-level ID
+  site_code text not null,                    -- original site code
+  provider text,
+  site_name text,
+  borough text,
+  lat double precision,
+  lon double precision,
+  sensor_type text,
+  pollutants_measured text[],                 -- array of pollutants (e.g., ['NO2', 'PM25'])
+  height double precision,
+  dist_kerb double precision,                 -- distance to kerb in metres
+  dist_receptor double precision,             -- distance to receptor in metres
+  asr boolean,                                -- ASR inclusion flag
+  scheme text,                                -- scheme name
+  triplicate text,                            -- triplicate group
+  start_date date,
+  end_date date
+);
+
+-- ACTIVE SENSORS VIEW
+create view active_sensors as
+select *
+from sensors
+where start_date is not null
+  and (end_date is null or end_date > current_date);
+
+-- HOURLY DATA TABLE
+create table hourly_data (
+  id bigserial primary key,
+  id_installation text references sensors(id_installation),
+  datetime timestamptz not null,
+  pollutant text not null,
+  value double precision,
+  unit text,
+  averaging_period text default 'hourly'
+);
+
+-- DAILY AVERAGES
+create table daily_averages (
+  id bigserial primary key,
+  id_site text not null,
+  pollutant text not null,
+  value double precision,
+  year int,
+  month int,
+  day int,
+  date date,
+  averaging_period text default 'daily'
+);
+
+-- MONTHLY AVERAGES
+create table monthly_averages (
+  id bigserial primary key,
+  id_site text not null,
+  pollutant text not null,
+  value double precision,
+  year int,
+  month int,
+  date date,
+  averaging_period text default 'monthly'
+);
+
+-- ANNUAL AVERAGES
+create table annual_averages (
+  id bigserial primary key,
+  id_site text not null,
+  pollutant text not null,
+  value double precision,
+  year int,
+  date date,
+  averaging_period text default 'annual'
+);
+
+-- MAP MONTHLY DATA VIEW
+create view map_monthly_data as
+select
+  m.id,
+  m.id_site,
+  s.site_name,
+  s.borough,
+  s.lat,
+  s.lon,
+  m.pollutant,
+  m.value,
+  m.year,
+  m.month,
+  m.date
+from monthly_averages m
+join sensors s on m.id_site = s.id_site;
+
+-- PERFORMANCE INDEXES
+create index on hourly_data (id_installation, datetime);
+create index on daily_averages (id_site, date);
+create index on monthly_averages (id_site, year, month);
+create index on annual_averages (id_site, year);
