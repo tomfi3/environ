@@ -895,7 +895,7 @@ def update_map(relayout, selected_boroughs, selected_pollutant,
             print("[DEBUG] No sensors match the current filters")
             return go.Figure()
 
-        db_pollutant = "PM25" if selected_pollutant == "PM2.5" else selected_pollutant
+        db_pollutant = selected_pollutant
         print(
             f"[DEBUG] Mapped pollutant '{selected_pollutant}' to DB value '{db_pollutant}'"
         )
