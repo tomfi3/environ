@@ -1,187 +1,186 @@
-# Environmental Monitoring Dashboard
+# London Environmental Monitoring Dashboard
 
-A modern, interactive dashboard for monitoring environmental pollution data across London boroughs.
+A modern, map‑centric **Dash** application for exploring air‑quality data across the London boroughs of **Wandsworth, Richmond upon Thames, and Merton**.
 
-## Features
+It combines a Supabase‑hosted database, Plotly visualisations and borough boundary overlays to give inspectors and the public an at‑a‑glance view of sensor performance, pollution hotspots and compliance against WHO/UK targets.
 
-### 🗺️ Interactive Map
-- Real-time pollution data visualization
-- Color-coded sensor locations
-- Click to select sensors for detailed analysis
-- Borough boundary highlighting
+---
 
-### 📊 Multiple Chart Types
-- **Main Trend Chart**: Compare multiple sensors over time
-- **Annual Averages**: Borough-wise yearly comparisons
-- **Monthly Averages**: Seasonal trend analysis
+## 1  Key Features
 
-### 🎛️ Advanced Filtering
-- **Pollutants**: NO₂, PM2.5, PM10
-- **Boroughs**: Wandsworth, Richmond, Merton
-- **Sensor Types**: DT, Automatic, Clarity
-- **Time Periods**: Monthly or Yearly data
-- **Date Range**: 2022-2024
+| Module                | Highlights                                                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Interactive Map**   | Live markers coloured by pollutant value; click, box‑drag or lasso to select sensors; optional borough polygons (KMZ → GeoJSON).                |
+| **Multi‑chart Panel** | • Annual / monthly trends  • Borough comparison bar‑chart  • Small time‑series preview.<br>All charts respect the active filters and selection. |
+| **Dynamic Filters**   | Pollutant, borough, sensor‑type, averaging period, year+month sliders, colour‑scale (WHO / Borough / UK legal).                                 |
+| **Supabase Loader**   | Caches the **active\_sensors** view and exposes helpers: `get_annual_data`, `get_monthly_data`, `get_combined_data`, `get_unique_values`.       |
+| **Export & Tools**    | CSV export, custom chart titles, borough NO₂ target toggle (30 µg m‑3), legend‑mode cycler, clear‑selection buttons.                            |
+| **Responsive UI**     | Expand/collapse map or detailed chart, mobile‑friendly CSS, print stylesheet, subtle animations.                                                |
 
-### 📋 Data Management
-- Interactive data table
-- CSV export functionality
-- Real-time data filtering
-- Search functionality
+---
 
-## Dashboard Layout
+## 2  Folder Structure
 
-### Left Sidebar
-- **Filter Controls**: All filtering options in one place
-- **Sensor Selection**: Multi-select dropdown for chart comparison
-- **Time Controls**: Year and month sliders
-
-### Main Content Area
-- **Top Bar**: Welcome message and search box
-- **Map Section**: 
-  - Large interactive map (2/3 width)
-  - Side charts for quick insights (1/3 width)
-- **Chart Section**:
-  - Main trend analysis chart
-  - Chart and table tools
-- **Data Table**: Detailed data view with export options
-
-### Responsive Design
-- Expandable chart sections
-- Mobile-friendly layout
-- Consistent spacing and shadows
-- Modern card-based design
-
-## Installation
-
-1. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Data Setup**:
-   - Place your environmental data in `data/environmental_data.csv`
-   - Or use the sample data generator (fallback)
-
-3. **Run the Dashboard**:
-   ```bash
-   python dashboard_app.py
-   ```
-
-4. **Access the Dashboard**:
-   - Open your browser to `http://localhost:5000`
-
-## Data Format
-
-The dashboard expects CSV data with the following columns:
-
-```csv
-site_code,borough,lat,lon,sensor_type,year,month,month_name,pollutant,value,date,averaging_period
-W1,Wandsworth,51.4571,-0.1911,DT,2022,1,Jan,NO2,42.3,2022-01,Month
+```text
+├─ assets/                 # CSS + KMZ boundary files
+│  ├─ dashboard.css
+│  ├─ Wandsworth Area.kmz  # required for borough shading
+│  └─ …
+├─ main.py                 # Dash application
+├─ supabase_io.py          # Database helper / cache layer
+├─ requirements.txt        # Python package list
+└─ README.md               # (this file)
 ```
 
-### Required Columns:
-- `site_code`: Unique sensor identifier
-- `borough`: Borough name
-- `lat`, `lon`: GPS coordinates
-- `sensor_type`: Type of sensor (DT, Automatic, Clarity)
-- `year`, `month`: Time period
-- `month_name`: Month abbreviation
-- `pollutant`: Pollutant type (NO2, PM2.5, PM10)
-- `value`: Measured value
-- `date`: Date in YYYY-MM format
-- `averaging_period`: Month or Year
+> **Tip:** Any other static assets (logos, screenshots) dropped inside `assets/` will be served automatically by Dash.
 
-## Usage Guide
+---
 
-### 1. Filtering Data
-- Use the sidebar buttons to select pollutants, boroughs, and sensor types
-- Choose between monthly and yearly data views
-- Adjust the year and month sliders as needed
+## 3  Quick Start
 
-### 2. Map Interaction
-- Click on sensor points to select them for detailed analysis
-- Use the dropdown to select multiple sensors for comparison
-- Selected sensors appear as red stars on the map
+### 3.1 Prerequisites
 
-### 3. Chart Analysis
-- The main chart shows trends for selected sensors
-- Side charts provide quick borough and monthly comparisons
-- Use the expand buttons to get a full-width view
+* Python 3.9 +
+* libspatialindex / GEOS / GDAL libraries (needed by **geopandas** / **fiona**)
+* A Supabase project populated with the tables/views referenced in `supabase_io.py` (`sensors`, `active_sensors`, `annual_averages`, `map_monthly_data`).
 
-### 4. Data Export
-- Click "Export CSV" to download filtered data
-- The export includes only the currently selected sensors and filters
+### 3.2 Installation & Run
 
-### 5. Search Functionality
-- Use the search box in the top bar to find specific sensors
-- Search by sensor code or borough name
+```bash
+# clone (or download) the repo
+$ git clone https://github.com/<your‑org>/london‑env‑dashboard.git
+$ cd london‑env‑dashboard
 
-## Customization
+# create & activate a virtual‑env (optional but recommended)
+$ python -m venv .venv
+$ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-### Styling
-- Modify `assets/dashboard.css` for custom styling
-- Update `DASHBOARD_STYLES` in `dashboard_app.py` for layout changes
+# install Python dependencies
+$ pip install -r requirements.txt
 
-### Data Sources
-- Replace `data/environmental_data.csv` with your own data
-- Ensure the CSV format matches the required structure
+# add environment secrets
+$ cp .env.example .env          # create if not committed
+$ nano .env                     # fill in the values below
 
-### Adding New Features
-- The modular callback structure makes it easy to add new charts
-- Use the existing card layout for new dashboard elements
+SUPABASE_URL=https://xyzcompany.supabase.co
+SUPABASE_ANON_KEY=eyJhbGci...
 
-## Technical Details
+# run the server (default http://127.0.0.1:5000)
+$ python main.py
+```
 
-### Architecture
-- **Framework**: Dash (Plotly)
-- **Data Processing**: Pandas
-- **Visualization**: Plotly Express and Graph Objects
-- **Styling**: Custom CSS with responsive design
+A browser window should open automatically (or visit the URL shown in the console).
 
-### Performance
-- Efficient data filtering and aggregation
-- Lazy loading of chart components
-- Optimized for large datasets
+### 3.3 Docker (optional)
 
-### Browser Compatibility
-- Modern browsers (Chrome, Firefox, Safari, Edge)
-- Responsive design for mobile devices
-- Print-friendly styles included
+```bash
+$ docker build -t envdash .
+$ docker run -p 5000:5000 --env-file .env envdash
+```
 
-## Troubleshooting
+---
 
-### Common Issues
+## 4  Environment Variables
 
-1. **Data not loading**:
-   - Check CSV file format and location
-   - Verify column names match exactly
-   - Ensure data types are correct
+| Variable            | Description                                                                |
+| ------------------- | -------------------------------------------------------------------------- |
+| `SUPABASE_URL`      | Base URL of your Supabase project (e.g. `https://xyz.supabase.co`).        |
+| `SUPABASE_ANON_KEY` | **Anon** or **service** key with read access to the relevant tables/views. |
+| `PORT` (optional)   | Port for Dash to bind to (default `5000`).                                 |
+| `HOST` (optional)   | Host interface (default `0.0.0.0` for Docker/Replit).                      |
 
-2. **Charts not updating**:
-   - Check browser console for JavaScript errors
-   - Verify callback dependencies are correct
-   - Clear browser cache if needed
+Store them in **.env** for local use or the hosting provider’s secret manager.
 
-3. **Styling issues**:
-   - Check CSS file is in the correct location
-   - Verify CSS syntax is valid
-   - Clear browser cache
+---
 
-### Support
-- Check the console for error messages
-- Verify all dependencies are installed
-- Ensure data format matches requirements
+## 5  Data Expectations
 
-## Future Enhancements
+### 5.1 Sensors / Metadata
 
-- [ ] Real-time data updates
-- [ ] Additional pollutant types
-- [ ] Advanced statistical analysis
-- [ ] User authentication
-- [ ] Data validation tools
-- [ ] Automated reporting
-- [ ] Mobile app version
+```text
+id_site (PK) · site_code · site_name · borough · lat · lon · sensor_type · pollutants_measured[]
+```
 
-## License
+### 5.2 Annual Averages (`annual_averages`)
 
-This project is open source and available under the MIT License. 
+| id\_site | pollutant | year | value |
+| -------- | --------- | ---- | ----- |
+
+### 5.3 Monthly Data (`map_monthly_data`)
+
+\| id\_site | pollutant | year | month | value | date |
+
+Both views already join the sensor metadata, so the app fetches everything in one call.
+
+---
+
+## 6  Usage Guide
+
+1. **Pick filters** in the sidebar – buttons turn red when active.
+2. The **map** updates instantly; click or drag‑lasso sensors to send them to the charts below.
+3. Toggle **Borough Boundaries** to shade polygons; colours are light grey, outline black.
+4. **Expand Map / Chart** buttons maximise each panel for presentations.
+5. In *Chart Tools* you can:
+
+   * Manually choose sensors via dropdown (multi‑select).
+   * Narrow the date window.
+   * Apply a custom title or reset.
+   * Show the **Borough Target** line (NO₂ only) at 30 µg m‑3.
+6. Use **Export Data / Export Table** to download CSV slices of the current view.
+
+---
+
+## 7  Styling & Customisation
+
+* All colours, spacing and component classes live in `assets/dashboard.css` – tweak tokens at the top (`:root { --sidebar-width …}`) to apply a new theme.
+* Map marker shapes derive from `SYMBOL_MAP` in **main.py**. Add new sensor types there.
+* Colour‑scales are defined in `COLOR_SCALES` – edit thresholds or palettes per pollutant and standard.
+
+---
+
+## 8  Development Notes
+
+* Callbacks are grouped by purpose (map, small charts, detailed chart, UI state).
+* **Supabase caching:** `supabase_io.clear_active_sensors_cache()` can be called from a Python console when testing fresh data.
+* Logging is via `logging` – set `LOG_LEVEL=DEBUG` to see verbose database requests.
+* The app auto‑reloads on file changes when run locally; disable with `export DASH_DEBUG=False`.
+
+### Running Unit Tests
+
+(No formal tests yet) – PRs adding **pytest** coverage are welcome 🙂
+
+---
+
+## 9  Troubleshooting
+
+| Symptom                                                             | Likely cause                                   | Fix                                                                           |
+| ------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| *"Failed to initialize Supabase loader"*                            | Missing or incorrect env vars                  | Check `.env`, regenerate **anon key** if revoked.                             |
+| Map shows but **no markers**                                        | Empty `active_sensors` view                    | Verify DB view; `id_site`, `lat`, `lon` must not be NULL.                     |
+| KMZ boundaries don’t appear                                         | Files absent or corrupt in `/assets`           | Keep original Google‑Earth KMZ names; ensure they contain a single `doc.kml`. |
+| `NotImplementedError: Polygon does not provide __array_interface__` | Mishandling Shapely polys in Pandas (dev work) | Convert to `GeoSeries([...])` before to\_file().                              |
+
+---
+
+## 10  Roadmap
+
+* Live websocket / Supabase channel for near‑real‑time updates
+* Additional boroughs & nationwide mode
+* User authentication & role‑based filters
+* Alert system for exceedances (email / Teams webhook)
+* Docker compose with PostGIS for local development
+
+---
+
+## 11  License
+
+Released under the **MIT** License – see `LICENSE` file for full text.
+
+---
+
+### Acknowledgements
+
+* Plotly Dash – interactive Python web apps
+* Supabase – open‑source Firebase alternative
+* London Borough Councils – public air‑quality data feeds
+* Inspiration from the **Love Clean Air** initiative.
