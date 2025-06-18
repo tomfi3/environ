@@ -655,6 +655,7 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant, selected_averagi
     print(f"[DEBUG] update_detailed_chart: all_sensors={all_sensors}")
     print(f"[DEBUG] selected_averaging={selected_averaging}")
     print(f"[DEBUG] chart_expanded={chart_expanded}")
+    print(f"[DEBUG] legend_mode={legend_mode}")
     if not all_sensors:
         fig = go.Figure()
         fig.add_annotation(
@@ -721,6 +722,7 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant, selected_averagi
                     trace_name = f"{site_code}: {site_name}" if site_name else site_code
                 else:  # legend_mode == 4
                     trace_name = ''
+                print(f"[DEBUG] sensor={sensor}, legend_mode={legend_mode}, trace_name={trace_name}")
                 fig.add_trace(go.Scatter(
                     x=sensor_data['date'],
                     y=sensor_data['value'],
@@ -1561,8 +1563,11 @@ def set_chart_expanded(n, expanded):
 )
 def cycle_legend_mode(n_clicks, current_mode):
     if n_clicks is None:
+        print(f"[DEBUG] cycle_legend_mode: n_clicks=None, returning 0")
         return 0
-    return (current_mode + 1) % 5
+    new_mode = (current_mode + 1) % 5
+    print(f"[DEBUG] cycle_legend_mode: n_clicks={n_clicks}, current_mode={current_mode}, new_mode={new_mode}")
+    return new_mode
 
 def marker_size_for_zoom(zoom, base_zoom=12, base_size=20):
     """Dramatically scale marker size with zoom level."""
@@ -1692,11 +1697,9 @@ def handle_custom_title(apply_clicks, reset_clicks, input_value, current_store):
         return None
     return no_update
 
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # Expose the server for gunicorn
 server = app.server
-
