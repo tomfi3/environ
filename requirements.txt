@@ -3,5 +3,5 @@ dash==2.16.1
 pandas==2.1.4
 plotly==6.1.2
 numpy==1.26.2
-supabase==2.3.4
+supabase==2.9.0
 python-dotenv==1.0.0 
