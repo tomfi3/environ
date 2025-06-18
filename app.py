@@ -704,6 +704,33 @@ app.layout = html.Div(
                                                 'marginTop': '16px',
                                                 'marginBottom': '8px'
                                             }),
+
+                                        html.Div([
+                                            html.Label("Y-Axis Max Height (Optional)",
+                                                       style={
+                                                           'fontWeight': '500',
+                                                           'marginBottom': '4px',
+                                                           'display': 'block',
+                                                           'fontSize': '12px'
+                                                       }),
+                                            dcc.Input(
+                                                id='yaxis-max-input',
+                                                type='number',
+                                                min=50,
+                                                max=999,
+                                                placeholder='Enter max height (e.g. 100)',
+                                                className='dropdown-style',
+                                                style={'width': '70%', 'marginRight': '8px'}
+                                            ),
+                                            dcc.Checklist(
+                                                id='yaxis-max-enable',
+                                                options=[{'label': 'Apply Max Height', 'value': 'apply'}],
+                                                value=[],
+                                                style={'marginTop': '4px'}
+                                            )
+                                        ], style={'marginTop': '16px'})
+
+                                                                           
                                             # Add Borough Target Toggle
                                             html.Div([
                                                 html.Label(
@@ -1101,12 +1128,15 @@ def update_map(relayout, selected_boroughs, selected_pollutant,
     Input('chart-expanded', 'data'),
     Input('legend-mode-store', 'data'),
     Input('custom-title-store', 'data'),
-    Input('show-borough-target', 'data')
+    Input('show-borough-target', 'data'),
+    Input('yaxis-max-enable', 'value'),
+    Input('yaxis-max-input', 'value'),
 ],
           prevent_initial_call=False)
 def update_detailed_chart(dropdown_sensors, selected_pollutant,
                           selected_averaging, chart_start_date, chart_end_date,
-                          n_clicks, chart_expanded, legend_mode, custom_title, show_borough_target):
+                          n_clicks, chart_expanded, legend_mode, custom_title,
+                          show_borough_target, yaxis_enabled, yaxis_max_value):
     ref_lines = []  # Always define this at the top
     all_sensors = dropdown_sensors or []
     all_sensors = list(set(all_sensors))  # Ensure no duplicates
@@ -1280,7 +1310,17 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant,
             bottom_margin = 120
         else:
             legend_config = dict(font=dict(family='monospace', size=12))
+            
+        # --- Y-axis handling ---
+        auto_ymax = chart_data['value'].max() if not chart_data.empty else 50
         min_ymax = 50
+        
+        # Apply user Y height if enabled
+        if 'apply' in (yaxis_enabled or []) and isinstance(yaxis_max_value, (int, float)) and 50 <= yaxis_max_value <= 999:
+            yaxis_range = [0, yaxis_max_value]
+        else:
+            yaxis_range = [0, max(auto_ymax, min_ymax)]
+        
         ref_annotations=[]
         # Add reference line annotations
         if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
@@ -1314,6 +1354,7 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant,
                          xanchor="left", yanchor="bottom",
                          font=dict(color="#FF8C00", size=10),
                          bgcolor="rgba(255,255,255,0.8)"))
+                
         fig.update_layout(
             title=dict(text=chart_title,
                        font=dict(color='black', size=14),
@@ -1337,7 +1378,7 @@ def update_detailed_chart(dropdown_sensors, selected_pollutant,
                        gridcolor='#e0e0e0',
                        zeroline=True,
                        zerolinecolor='black',
-                       range=[0, min_ymax],
+                       range=yaxis_range,
                        title=f"{selected_pollutant} Concentration (μg/m³)"),
             legend=legend_config,
             showlegend=showlegend,
