@@ -11,37 +11,44 @@ from dash import ctx
 from dash.dependencies import ALL
 import json
 
+# Import Supabase loader
+from supabase_io import get_supabase_loader, initialize_supabase
 
+# Add this after imports, before any callbacks or functions
 SYMBOL_MAP = {
     "DT": "square",
     "Clarity": "circle",
     "Automatic": "triangle-up"
 }
 
-# Load data from CSV file
-# ---------------- load_data()  -----------------
-import sys                           #  ←― ① add
-from pathlib import Path             #  ←― ② add
-
+# Load data from Supabase
 def load_data():
-    """Load environmental data from a local CSV shipped with the app."""
-    csv_path = (
-        Path(__file__).resolve().parent        # folder containing app.py
-        / "data"
-        / "environmental_data_merged.csv"
-    )
-
-    # ③ DEBUG – will show in Render logs
-    print(f"[DEBUG] csv_path = {csv_path}  |  exists? {csv_path.exists()}",
-          file=sys.stderr)
-
-    df = pd.read_csv(csv_path)       # will raise FileNotFoundError if False above
-
-    # Standardise Richmond spelling
-    df["borough"] = df["borough"].replace(r"(?i)richmond.*", "Richmond", regex=True)
-    return df
-
-
+    """Load environmental data from Supabase database"""
+    try:
+        # Initialize Supabase connection
+        if not initialize_supabase():
+            raise RuntimeError("Failed to initialize Supabase connection")
+        
+        loader = get_supabase_loader()
+        
+        # Get all data for the current view (we'll filter in callbacks)
+        # For now, load annual data as default
+        df = loader.get_annual_data()
+        
+        if df.empty:
+            print("Warning: No data loaded from Supabase")
+            return pd.DataFrame()
+        
+        # Standardize Richmond borough names (keeping existing logic)
+        df['borough'] = df['borough'].replace(to_replace=r'(?i)richmond.*', value='Richmond', regex=True)
+        
+        print(f"Loaded {len(df)} records from Supabase")
+        return df
+        
+    except Exception as e:
+        print(f"Error loading data from Supabase: {e}")
+        # Return empty DataFrame as fallback
+        return pd.DataFrame()
 
 # Borough name mapping for short labels
 BOROUGH_LABELS = {
@@ -53,12 +60,47 @@ BOROUGH_LABELS = {
 # Load data
 df = load_data()
 
-# Get unique values for filters
-boroughs = sorted(df['borough'].unique().tolist())
-pollutants = sorted(df['pollutant'].unique().tolist())
-sensor_types = sorted(df['sensor_type'].unique().tolist())
-years = sorted([int(y) for y in df['year'].unique()])
-months = sorted([int(m) for m in df['month'].unique()])
+# Get unique values for filters from Supabase
+def get_filter_values():
+    """Get unique filter values from Supabase"""
+    try:
+        loader = get_supabase_loader()
+        unique_values = loader.get_unique_values()
+        
+        # Fallback to empty lists if Supabase fails or if years are empty
+        if not unique_values['years']:
+            print("Warning: No years found in Supabase")
+            return [], [], [], [], []
+        
+        return (
+            unique_values['boroughs'],
+            unique_values['pollutants'],
+            unique_values['sensor_types'],
+            unique_values['years'],
+            unique_values['months']
+        )
+    except Exception as e:
+        print(f"Error getting filter values from Supabase: {e}")
+        return [], [], [], [], []
+
+# Get filter values
+boroughs, pollutants, sensor_types, _, months = get_filter_values()
+
+# Force full year range regardless of Supabase response
+years = list(range(2000, datetime.now().year + 1))
+
+# Fallbacks for other fields if needed
+if not boroughs:
+    boroughs = ['Wandsworth', 'Richmond', 'Merton']
+if not pollutants:
+    pollutants = ['NO2', 'PM2.5', 'PM10']
+else:
+    if 'PM2.5' not in pollutants:
+        pollutants.append('PM2.5')
+if not sensor_types:
+    sensor_types = ['DT', 'Clarity', 'Automatic']
+if not months:
+    months = list(range(1, 13))
 
 # Initialize Dash app
 app = dash.Dash(__name__)
@@ -222,7 +264,6 @@ app.layout = html.Div([
     dcc.Store(id='selected-boroughs', data=boroughs),
     dcc.Store(id='selected-pollutant', data='NO2'),
     dcc.Store(id='selected-sensor-types', data=sensor_types),  # For map view filter
-    dcc.Store(id='selected-individual-sensors', data=[]),  # For individual sensor selection
     dcc.Store(id='selected-averaging', data='Annual'),
     dcc.Store(id='selected-year', data=2024),
     dcc.Store(id='selected-month', data=1),
@@ -284,7 +325,7 @@ app.layout = html.Div([
                 html.Div([
                     html.H3("Detailed Analysis", className="card-title"),
                     html.Div([
-                        html.Button('Legend Mode', id='toggle-legend-btn', className='expand-button'),
+                        html.Button('Toggle Legend', id='toggle-legend-btn', className='expand-button'),
                         html.Button("Expand Chart", id="expand-chart-btn", className="expand-button")
                     ], style={'display': 'flex', 'gap': '8px', 'marginLeft': 'auto'})
                 ], className="card-header"),
@@ -308,7 +349,7 @@ app.layout = html.Div([
                         html.Label("Select Sensors to Show in Charts", style={'fontWeight': '500', 'marginBottom': '4px', 'display': 'block', 'fontSize': '12px'}),
                         dcc.Dropdown(
                             id='chart-sensors-dropdown',
-                            options=[{'label': s, 'value': s} for s in sorted(df['site_code'].unique())],
+                            options=[],  # Will be populated by callback
                             multi=True,
                             placeholder="Select sensors...",
                             className="dropdown-style"
@@ -320,7 +361,7 @@ app.layout = html.Div([
                         html.Label("Chart Start Date", style={'fontWeight': '500', 'marginBottom': '4px', 'display': 'block', 'fontSize': '12px'}),
                         dcc.DatePickerSingle(
                             id='chart-start-date',
-                            date=df['date'].min(),
+                            date=None,  # Will be set by callback
                             className="dropdown-style"
                         )
                     ], style={'marginBottom': '12px'}),
@@ -328,7 +369,7 @@ app.layout = html.Div([
                         html.Label("Chart End Date", style={'fontWeight': '500', 'marginBottom': '4px', 'display': 'block', 'fontSize': '12px'}),
                         dcc.DatePickerSingle(
                             id='chart-end-date',
-                            date=df['date'].max(),
+                            date=None,  # Will be set by callback
                             className="dropdown-style"
                         )
                     ], style={'marginBottom': '12px'}),
@@ -391,23 +432,24 @@ def update_selected_map_style(style):
      Input('selected-month', 'data'),
      Input('selected-color-scale', 'data'),
      Input('selected-map-style', 'data')],
-    [State('selected-individual-sensors', 'data'),
-     State('map-view-store', 'data')],
+    [State('map-view-store', 'data')],
     prevent_initial_call=False
 )
-def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_types, selected_averaging, selected_year, selected_month, selected_color_scale, selected_map_style, selected_individual_sensors, map_view_store):
+def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_types, selected_averaging, selected_year, selected_month, selected_color_scale, selected_map_style, map_view_store):
+    print("\n================ MAP CALLBACK DEBUG ================")
     print(f"[DEBUG] Map callback inputs:")
-    print(f"  - selected_boroughs: {selected_boroughs}")
-    print(f"  - selected_pollutant: {selected_pollutant}")
-    print(f"  - selected_sensor_types: {selected_sensor_types}")
-    print(f"  - selected_averaging: {selected_averaging}")
-    print(f"  - selected_year: {selected_year}")
-    print(f"  - selected_month: {selected_month}")
-    print(f"  - selected_color_scale: {selected_color_scale}")
-    print(f"  - selected_map_style: {selected_map_style}")
+    print(f"  - selected_boroughs: {selected_boroughs} (type: {type(selected_boroughs)})")
+    print(f"  - selected_pollutant: {selected_pollutant} (type: {type(selected_pollutant)})")
+    print(f"  - selected_sensor_types: {selected_sensor_types} (type: {type(selected_sensor_types)})")
+    print(f"  - selected_averaging: {selected_averaging} (type: {type(selected_averaging)})")
+    print(f"  - selected_year: {selected_year} (type: {type(selected_year)})")
+    print(f"  - selected_month: {selected_month} (type: {type(selected_month)})")
+    print(f"  - selected_color_scale: {selected_color_scale} (type: {type(selected_color_scale)})")
+    print(f"  - selected_map_style: {selected_map_style} (type: {type(selected_map_style)})")
     print(f"[DEBUG] Map callback states:")
-    print(f"  - selected_individual_sensors: {selected_individual_sensors}")
-    print(f"[DEBUG] relayoutData: {relayout}")
+    print(f"  - map_view_store: {map_view_store}")
+    print(f"  - relayout: {relayout}")
+    
     # Use map_view_store for zoom/center unless relayoutData provides new values
     zoom = map_view_store.get('zoom', 11.3) if map_view_store else 11.3
     center = map_view_store.get('center', {'lat': 51.445, 'lon': -0.22}) if map_view_store else {'lat': 51.445, 'lon': -0.22}
@@ -418,114 +460,178 @@ def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_
             center = relayout['map.center']
     print(f"[DEBUG] Current zoom: {zoom}, center: {center}")
     
-    # Always show all relevant sensor locations, even if no data for selected pollutant/period
-    all_sensors = df[['site_code', 'borough', 'lat', 'lon', 'sensor_type']].drop_duplicates()
-    all_sensors = all_sensors[
-        all_sensors['borough'].isin(selected_boroughs) & 
-        all_sensors['sensor_type'].isin(selected_sensor_types)
-    ]
-    # Get data for the selected filters
-    filtered_df = df.copy()
-    filtered_df = filtered_df[filtered_df['borough'].isin(selected_boroughs)]
-    filtered_df = filtered_df[filtered_df['pollutant'] == selected_pollutant]
-    filtered_df = filtered_df[filtered_df['sensor_type'].isin(selected_sensor_types)]
-    filtered_df = filtered_df[filtered_df['averaging_period'] == selected_averaging]
-    filtered_df = filtered_df[filtered_df['year'] == selected_year]
-    if selected_averaging == 'Month':
-        filtered_df = filtered_df[filtered_df['month'] == selected_month]
-    # Map site_code to value
-    sensor_value_map = dict(zip(filtered_df['site_code'], filtered_df['value']))
-    # Filter sensors to only those with data for the selected pollutant/filters
-    sensors_with_data = all_sensors[all_sensors['site_code'].isin(sensor_value_map.keys())]
-
-    # Add a single trace for all sensors with data
-    marker_colors = []
-    for _, row in sensors_with_data.iterrows():
-        val = sensor_value_map.get(row['site_code'], None)
-        marker_colors.append(get_color_for_value(val, selected_pollutant, selected_color_scale))
-    
-    marker_size = marker_size_for_zoom(zoom)
-    
-    print(f"[DEBUG] Map zoom: {zoom}, marker_size: {marker_size}")
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scattermap(
-        lat=sensors_with_data['lat'],
-        lon=sensors_with_data['lon'],
-        mode='markers+text',
-        marker=dict(
-            size=marker_size,
-            color=marker_colors,
-            opacity=0.95,
-            allowoverlap=True
-        ),
-        text=sensors_with_data['site_code'],
-        textposition='top center',
-        name=f"Sensors with data",
-        customdata=sensors_with_data.apply(
-            lambda row: [
-                row['borough'],
-                row['sensor_type'],
-                sensor_value_map.get(row['site_code'], float('nan'))
-            ],
-            axis=1
-        ).tolist(),
-        hovertemplate=(
-            "<b>%{text}</b><br>" +
-            "Borough: %{customdata[0]}<br>" +
-            "Type: %{customdata[1]}<br>" +
-            "Value: %{customdata[2]:.1f} μg/m³<extra></extra>"
+    try:
+        loader = get_supabase_loader()
+        active_sensors = loader.get_active_sensors()
+        print(f"[DEBUG] Loaded {len(active_sensors)} active sensors from Supabase")
+        if not active_sensors.empty:
+            print(f"[DEBUG] Active sensors sample:\n{active_sensors.head(3)}")
+        else:
+            print("[DEBUG] No active sensors found")
+            return go.Figure()
+        
+        all_sensors = active_sensors[
+            active_sensors['borough'].isin(selected_boroughs) & 
+            active_sensors['sensor_type'].isin(selected_sensor_types)
+        ]
+        print(f"[DEBUG] Filtered sensors by borough/type: {len(all_sensors)}")
+        if not all_sensors.empty:
+            print(f"[DEBUG] Filtered sensors sample:\n{all_sensors.head(3)}")
+        else:
+            print("[DEBUG] No sensors match the current filters")
+            return go.Figure()
+        
+        db_pollutant = "PM25" if selected_pollutant == "PM2.5" else selected_pollutant
+        print(f"[DEBUG] Mapped pollutant '{selected_pollutant}' to DB value '{db_pollutant}'")
+        if selected_year is not None:
+            selected_year = int(selected_year)
+            print(f"[DEBUG] Converted selected_year to int: {selected_year}")
+        
+        print(f"[DEBUG] Calling get_combined_data with:")
+        print(f"  - averaging_period: {selected_averaging}")
+        print(f"  - id_sites: {all_sensors['id_site'].tolist()[:5]} ... total {len(all_sensors)}")
+        print(f"  - pollutants: {[db_pollutant]}")
+        print(f"  - years: {[selected_year] if selected_year is not None else None}")
+        print(f"  - months: {[selected_month] if selected_averaging == 'Month' else None}")
+        
+        filtered_df = loader.get_combined_data(
+            averaging_period=selected_averaging,
+            id_sites=all_sensors['id_site'].tolist(),
+            pollutants=[db_pollutant],
+            years=[selected_year] if selected_year is not None else None,
+            months=[selected_month] if selected_averaging == 'Month' else None
         )
-    ))
+        print(f"[DEBUG] Returned {len(filtered_df)} rows from get_combined_data")
+        if not filtered_df.empty:
+            print(f"[DEBUG] filtered_df columns: {filtered_df.columns.tolist()}")
+            print(f"[DEBUG] filtered_df sample:\n{filtered_df.head(3)}")
+            print(f"[DEBUG] filtered_df id_site unique: {filtered_df['id_site'].unique()[:5]}")
+            print(f"[DEBUG] filtered_df years: {filtered_df['year'].unique() if 'year' in filtered_df.columns else 'N/A'}")
+            print(f"[DEBUG] filtered_df pollutants: {filtered_df['pollutant'].unique() if 'pollutant' in filtered_df.columns else 'N/A'}")
+        else:
+            print(f"[DEBUG] No data returned - checking what's available in the database...")
+            try:
+                sample_data = loader.get_annual_data()
+                if not sample_data.empty:
+                    print(f"[DEBUG] Sample annual data available:")
+                    print(f"  - Pollutants: {sample_data['pollutant'].unique()}")
+                    print(f"  - Years: {sorted(sample_data['year'].unique())}")
+                    print(f"  - Sample rows: {len(sample_data)}")
+                    print(sample_data[['id_site', 'pollutant', 'year', 'value']].head())
+                else:
+                    print(f"[DEBUG] No annual data available at all")
+            except Exception as e:
+                print(f"[DEBUG] Error checking sample data: {e}")
+        
+        # Always show all filtered sensors
+        sensor_value_map = dict(zip(filtered_df['id_site'], filtered_df['value'])) if not filtered_df.empty else {}
+        # Only keep sensors that have data for the current filter selection
+        sensors_with_data = all_sensors[all_sensors['id_site'].isin(sensor_value_map.keys())].copy() if sensor_value_map else pd.DataFrame(columns=all_sensors.columns)
+        print(f"[DEBUG] sensors_with_data: {len(sensors_with_data)} (with data for current filters)")
+        if not sensors_with_data.empty:
+            print(f"[DEBUG] sensors_with_data sample:\n{sensors_with_data.head(3)}")
 
-    # Add color scale legend only
-    color_scale_info = get_color_scale_info(selected_pollutant, selected_color_scale)
-    legend_shapes = []
-    legend_annotations = []
-    legend_y = 0.12
-    legend_x = 0.01
-    legend_height = 0.025
+        marker_size = marker_size_for_zoom(zoom)
+        print(f"[DEBUG] Map zoom: {zoom}, marker_size: {marker_size}")
+        print(f"[DEBUG] Sensors with data: {len(sensors_with_data)} (with data for current filters)")
+        print("================ END MAP CALLBACK DEBUG ================\n")
 
-    for i, (min_val, max_val, label, color) in enumerate(color_scale_info):
-        legend_shapes.append(dict(
-            type="rect",
-            xref="paper", yref="paper",
-            x0=legend_x, x1=legend_x + 0.04,
-            y0=legend_y + i * legend_height, y1=legend_y + (i + 1) * legend_height,
-            fillcolor=color, line=dict(width=0)
-        ))
-        legend_annotations.append(dict(
-            x=legend_x + 0.045, y=legend_y + i * legend_height + legend_height / 2,
-            xref="paper", yref="paper",
-            text=f"{label} ({min_val:g}-{max_val if max_val != float('inf') else '∞'})",
-            showarrow=False, xanchor="left", yanchor="middle",
-            font=dict(size=12)
-        ))
+        fig = go.Figure()
+        if not sensors_with_data.empty:
+            # Assign marker colors: color by value
+            marker_colors = [get_color_for_value(sensor_value_map[row['id_site']], selected_pollutant, selected_color_scale) for _, row in sensors_with_data.iterrows()]
+            fig.add_trace(go.Scattermap(
+                lat=sensors_with_data['lat'],
+                lon=sensors_with_data['lon'],
+                mode='markers+text',
+                marker=dict(
+                    size=marker_size,
+                    color=marker_colors,
+                    opacity=0.95,
+                    allowoverlap=True
+                ),
+                text=sensors_with_data['site_code'],  # Use site_code for display
+                textposition='top center',
+                name=f"Sensors (all)",
+                customdata=sensors_with_data.apply(
+                    lambda row: [
+                        row['site_code'],  # site_code for hover display
+                        row['borough'],
+                        row['sensor_type'],
+                        sensor_value_map.get(row['id_site'], float('nan'))  # Still keyed by id_site
+                    ],
+                    axis=1
+                ).tolist(),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>" +  # site_code
+                    "Borough: %{customdata[1]}<br>" +
+                    "Type: %{customdata[2]}<br>" +
+                    "Value: %{customdata[3]:.1f} μg/m³<extra></extra>"
+                )
+            ))
+        else:
+            # Add a single invisible dummy marker at the map center
+            fig.add_trace(go.Scattermap(
+                lat=[center['lat']],
+                lon=[center['lon']],
+                mode='markers',
+                marker=dict(size=1, color='rgba(0,0,0,0)', opacity=0),
+                text=[''],
+                hoverinfo='skip',
+                showlegend=False
+            ))
 
-    # Update layout with only the color scale legend
-    fig.update_layout(
-        uirevision=f"mapview_{zoom}_{center['lat']}_{center['lon']}",  # Stable uirevision
-        map=dict(
-            style=selected_map_style,
-            center=center,
-            zoom=zoom
-        ),
-        margin=dict(l=0, r=0, t=0, b=0),
-        showlegend=False,
-        shapes=legend_shapes,
-        annotations=legend_annotations
-    )
-    
-    return fig
+        # Add color scale legend only
+        color_scale_info = get_color_scale_info(selected_pollutant, selected_color_scale)
+        legend_shapes = []
+        legend_annotations = []
+        legend_y = 0.12
+        legend_x = 0.01
+        legend_height = 0.025
+
+        for i, (min_val, max_val, label, color) in enumerate(color_scale_info):
+            legend_shapes.append(dict(
+                type="rect",
+                xref="paper", yref="paper",
+                x0=legend_x, x1=legend_x + 0.04,
+                y0=legend_y + i * legend_height, y1=legend_y + (i + 1) * legend_height,
+                fillcolor=color, line=dict(width=0)
+            ))
+            legend_annotations.append(dict(
+                x=legend_x + 0.045, y=legend_y + i * legend_height + legend_height / 2,
+                xref="paper", yref="paper",
+                text=f"{label} ({min_val:g}-{max_val if max_val != float('inf') else '∞'})",
+                showarrow=False, xanchor="left", yanchor="middle",
+                font=dict(size=12)
+            ))
+
+        # Update layout with only the color scale legend
+        fig.update_layout(
+            uirevision=f"mapview_{zoom}_{center['lat']}_{center['lon']}",  # Stable uirevision
+            map=dict(
+                style=selected_map_style,
+                center=center,
+                zoom=zoom,
+                domain=dict(x=[0, 1], y=[0, 1])
+            ),
+            margin=dict(l=0, r=0, t=0, b=0),
+            showlegend=False,
+            shapes=legend_shapes,
+            annotations=legend_annotations
+        )
+        
+        return fig
+        
+    except Exception as e:
+        print(f"[ERROR] Error in map callback: {e}")
+        # Return empty figure on error
+        return go.Figure()
 
 @callback(
     Output('detailed-chart', 'figure'),
     [Input('chart-sensors-dropdown', 'value'),
-     Input('map-graph', 'selectedData'),
-     Input('map-graph', 'clickData'),
      Input('selected-pollutant', 'data'),
      Input('selected-averaging', 'data'),
-     Input('selected-month', 'data'),
      Input('chart-start-date', 'date'),
      Input('chart-end-date', 'date'),
      Input('update-chart-button', 'n_clicks'),
@@ -533,20 +639,12 @@ def update_map(relayout, selected_boroughs, selected_pollutant, selected_sensor_
      Input('legend-mode-store', 'data')],
     prevent_initial_call=False
 )
-def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging, selected_month, chart_start_date, chart_end_date, n_clicks, chart_expanded, legend_mode):
+def update_detailed_chart(dropdown_sensors, selected_pollutant, selected_averaging, chart_start_date, chart_end_date, n_clicks, chart_expanded, legend_mode):
     ref_lines = []  # Always define this at the top
-    all_sensors = []
-    if dropdown_sensors:
-        all_sensors.extend(dropdown_sensors)
-    if lasso_data and 'points' in lasso_data:
-        lasso_sensors = [point['text'] for point in lasso_data['points'] if 'text' in point]
-        all_sensors.extend(lasso_sensors)
-    if click_data and 'points' in click_data:
-        click_sensors = [point['text'] for point in click_data['points'] if 'text' in point]
-        all_sensors.extend(click_sensors)
-    all_sensors = list(set(all_sensors))
+    all_sensors = dropdown_sensors or []
+    all_sensors = list(set(all_sensors))  # Ensure no duplicates
     print(f"[DEBUG] update_detailed_chart: all_sensors={all_sensors}")
-    print(f"[DEBUG] selected_averaging={selected_averaging}, selected_month={selected_month}")
+    print(f"[DEBUG] selected_averaging={selected_averaging}")
     print(f"[DEBUG] chart_expanded={chart_expanded}")
     if not all_sensors:
         fig = go.Figure()
@@ -560,7 +658,168 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
         fig.update_layout(
             title=dict(text="Detailed Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
             plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        return fig
+    
+    # Filter by averaging_period (Annual or Month), pollutant, and selected sensors
+    try:
+        loader = get_supabase_loader()
+        chart_data = loader.get_combined_data(
+            averaging_period=selected_averaging,
+            id_sites=all_sensors,
+            pollutants=[selected_pollutant]
+        )
+        # Build id_site to site_code and site_name mapping
+        active_sensors = loader.get_active_sensors()
+        id_to_code = dict(zip(active_sensors["id_site"], active_sensors["site_code"]))
+        id_to_name = dict(zip(active_sensors["id_site"], active_sensors["site_name"]))
+        
+        if chart_data.empty:
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No data found for selected sensors and filters.",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=14, color="gray")
+            )
+            fig.update_layout(
+                title=dict(text="Detailed Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
+                plot_bgcolor='white',
+                paper_bgcolor='white'
+            )
+            return fig
+        
+        # Create time series chart
+        fig = go.Figure()
+        
+        for sensor in all_sensors:
+            sensor_data = chart_data[chart_data['id_site'] == sensor]
+            if len(sensor_data) > 0:
+                # Create date column for x-axis
+                if selected_averaging == 'Month':
+                    sensor_data['date'] = pd.to_datetime(dict(year=sensor_data['year'], month=sensor_data['month'], day=1))
+                else:  # Annual
+                    sensor_data['date'] = pd.to_datetime(sensor_data['year'], format='%Y')
+                sensor_data = sensor_data.sort_values('date')
+                # Legend label logic per legend_mode
+                site_code = id_to_code.get(sensor, sensor)
+                site_name = id_to_name.get(sensor, '')
+                if legend_mode in [0, 1]:
+                    trace_name = site_code
+                elif legend_mode in [2, 3]:
+                    trace_name = f"{site_code}: {site_name}" if site_name else site_code
+                else:  # legend_mode == 4
+                    trace_name = ''
+                fig.add_trace(go.Scatter(
+                    x=sensor_data['date'],
+                    y=sensor_data['value'],
+                    mode='lines+markers',
+                    name=trace_name,
+                    line=dict(width=2),
+                    marker=dict(size=4),
+                    showlegend=(legend_mode != 4)
+                ))
+        
+        # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
+        ref_lines = []
+        ref_annotations = []
+        min_ymax = 1.05 * max(sensor_data['value'].max() for sensor_data in [chart_data[chart_data['id_site'] == sensor] for sensor in all_sensors])
+        if selected_pollutant == "NO2":
+            min_ymax = max(min_ymax, 50)
+        elif selected_pollutant in ["PM2.5", "PM10"]:
+            min_ymax = max(min_ymax, 30)
+        
+        if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
+            who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
+            uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
+            if selected_pollutant in who_limits:
+                ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+                ref_annotations.append(dict(
+                    x=0.01, y=who_limits[selected_pollutant]+2 if selected_pollutant=="NO2" else who_limits[selected_pollutant]+1,
+                    xref='paper', yref='y',
+                    text='WHO Guideline',
+                    showarrow=False, xanchor='left', yanchor='bottom',
+                    font=dict(size=11, color='green'),
+                    align='left',
+                    bgcolor='rgba(255,255,255,0.7)',
+                    borderpad=2,
+                    bordercolor='green',
+                    borderwidth=0
+                ))
+            if selected_pollutant in uk_limits:
+                ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
+                ref_annotations.append(dict(
+                    x=0.01, y=uk_limits[selected_pollutant]+2 if selected_pollutant=="NO2" else uk_limits[selected_pollutant]+1,
+                    xref='paper', yref='y',
+                    text='UK Limit',
+                    showarrow=False, xanchor='left', yanchor='bottom',
+                    font=dict(size=11, color='red'),
+                    align='left',
+                    bgcolor='rgba(255,255,255,0.7)',
+                    borderpad=2,
+                    bordercolor='red',
+                    borderwidth=0
+                ))
+        
+        # Create chart title based on averaging period and pollutant
+        if selected_averaging == 'Annual':
+            chart_title = f"Chart of Annual Average {selected_pollutant}"
+        else:
+            chart_title = f"Chart of Monthly Average {selected_pollutant}"
+        
+        # Legend layout logic per legend_mode
+        showlegend = legend_mode != 4
+        bottom_margin = 40  # default
+        if legend_mode == 0:
+            legend_config = dict(
+                orientation='v',
+                yanchor='top',
+                y=1,
+                xanchor='right',
+                x=1,
+                font=dict(family='monospace', size=12),
+                bgcolor='rgba(255,255,255,0.9)'
+            )
+        elif legend_mode == 1:
+            legend_config = dict(
+                orientation='v',
+                yanchor='top',
+                y=1,
+                xanchor='left',
+                x=1.02,
+                font=dict(family='monospace', size=12),
+                bgcolor='rgba(255,255,255,0.9)'
+            )
+        elif legend_mode == 2:
+            legend_config = dict(
+                orientation='v',
+                yanchor='top',
+                y=1,
+                xanchor='left',
+                x=1.02,
+                font=dict(family='monospace', size=12),
+                bgcolor='rgba(255,255,255,0.9)'
+            )
+        elif legend_mode == 3:
+            legend_config = dict(
+                orientation='h',
+                yanchor='top',
+                y=-0.25,
+                xanchor='center',
+                x=0.5,
+                font=dict(family='monospace', size=12),
+                bgcolor='rgba(255,255,255,0.9)'
+            )
+            bottom_margin = 120
+        else:
+            legend_config = dict(font=dict(family='monospace', size=12))
+        fig.update_layout(
+            title=dict(text=chart_title, font=dict(color='black', size=14), x=0.5, xanchor='center'),
+            plot_bgcolor='white',
             paper_bgcolor='white',
+            margin=dict(l=40, r=40, t=40, b=bottom_margin),
             xaxis=dict(
                 showline=True,
                 linewidth=2,
@@ -579,28 +838,26 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
                 gridcolor='#e0e0e0',
                 zeroline=True,
                 zerolinecolor='black',
-                range=[0, 1],
+                range=[0, min_ymax],
                 title=f"{selected_pollutant} Concentration (μg/m³)"
             ),
+            legend=legend_config,
+            showlegend=showlegend,
+            shapes=ref_lines,
+            annotations=ref_annotations
         )
+        
         return fig
-    # Filter by averaging_period (Annual or Month), pollutant, and selected sensors
-    chart_data = df[
-        (df['site_code'].isin(all_sensors)) &
-        (df['pollutant'] == selected_pollutant) &
-        (df['averaging_period'] == selected_averaging)
-    ].copy()
-    # Do NOT filter by year or month in monthly mode; show all months across all years
-    print(f"[DEBUG] chart_data shape after filtering: {chart_data.shape}")
-    print(f"[DEBUG] chart_data sample:\n{chart_data.head()}")
-    if len(chart_data) == 0:
+        
+    except Exception as e:
+        print(f"[ERROR] Error loading chart data from Supabase: {e}")
         fig = go.Figure()
         fig.add_annotation(
-            text="No data for selected sensors",
+            text="Error loading data from database",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
-            font=dict(size=14, color="gray")
+            font=dict(size=14, color="red")
         )
         fig.update_layout(
             title=dict(text="Detailed Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
@@ -629,180 +886,6 @@ def update_detailed_chart(dropdown_sensors, lasso_data, click_data, selected_pol
             ),
         )
         return fig
-    
-    # Build sensor_names for all selected sensors using the main df
-    sensor_names = {}
-    for sensor in all_sensors:
-        sensor_row = df[df['site_code'] == sensor]
-        if not sensor_row.empty:
-            sensor_names[sensor] = sensor_row.iloc[0]['site_name']
-        else:
-            sensor_names[sensor] = sensor
-    
-    # Create traces and track last values for sorting
-    traces = []
-    last_values = {}
-    max_y = 0
-    
-    for sensor in all_sensors:
-        sensor_data = chart_data[chart_data['site_code'] == sensor]
-        if len(sensor_data) > 0:
-            if selected_averaging == 'Month':
-                sensor_data['date'] = pd.to_datetime(dict(year=sensor_data['year'], month=sensor_data['month'], day=1))
-            else:
-                sensor_data['date'] = pd.to_datetime(sensor_data['year'], format='%Y')
-            sensor_data = sensor_data.sort_values('date')
-            
-            # Track last value for sorting
-            last_value = sensor_data['value'].iloc[-1]
-            last_values[sensor] = last_value
-            max_y = max(max_y, sensor_data['value'].max())
-            
-            # Create legend name based on expanded mode
-            if chart_expanded:
-                legend_name = f"{sensor}: {sensor_names.get(sensor, sensor)}"
-            else:
-                legend_name = sensor
-            
-            traces.append(go.Scatter(
-                x=sensor_data['date'],
-                y=sensor_data['value'],
-                mode='lines+markers',
-                name=legend_name,
-                line=dict(width=2),
-                marker=dict(size=4)
-            ))
-    
-    # Sort traces by last value (descending)
-    sorted_traces = sorted(traces, key=lambda trace: last_values.get(trace.name.split(':')[0] if ':' in trace.name else trace.name, 0), reverse=True)
-    
-    fig = go.Figure(data=sorted_traces)
-    
-    # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
-    ref_lines = []
-    ref_annotations = []
-    min_ymax = 1.05 * max_y
-    if selected_pollutant == "NO2":
-        min_ymax = max(min_ymax, 50)
-    elif selected_pollutant in ["PM2.5", "PM10"]:
-        min_ymax = max(min_ymax, 30)
-    if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
-        who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
-        uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
-        if selected_pollutant in who_limits:
-            ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
-            ref_annotations.append(dict(
-                x=0.01, y=who_limits[selected_pollutant]+2 if selected_pollutant=="NO2" else who_limits[selected_pollutant]+1,
-                xref='paper', yref='y',
-                text='WHO Guideline',
-                showarrow=False, xanchor='left', yanchor='bottom',
-                font=dict(size=11, color='green'),
-                align='left',
-                bgcolor='rgba(255,255,255,0.7)',
-                borderpad=2,
-                bordercolor='green',
-                borderwidth=0
-            ))
-        if selected_pollutant in uk_limits:
-            ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
-            ref_annotations.append(dict(
-                x=0.01, y=uk_limits[selected_pollutant]+2 if selected_pollutant=="NO2" else uk_limits[selected_pollutant]+1,
-                xref='paper', yref='y',
-                text='UK Limit',
-                showarrow=False, xanchor='left', yanchor='bottom',
-                font=dict(size=11, color='red'),
-                align='left',
-                bgcolor='rgba(255,255,255,0.7)',
-                borderpad=2,
-                bordercolor='red',
-                borderwidth=0
-            ))
-    
-    # Create chart title based on averaging period and pollutant
-    if selected_averaging == 'Annual':
-        chart_title = f"Chart of Annual Average {selected_pollutant}"
-    else:
-        chart_title = f"Chart of Monthly Average {selected_pollutant}"
-    
-    # Configure legend based on expanded mode
-    bottom_margin = 40  # Default for collapsed mode
-    if chart_expanded:
-        # Expanded mode: legend below chart, horizontal, full width, allow auto-wrapping
-        legend_config = dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.25,  # Further below the chart and axis
-            xanchor="center",
-            x=0.5,  # Center horizontally
-            font=dict(family="monospace", size=12),  # Larger text
-            bgcolor='rgba(255,255,255,0.9)'
-        )
-        bottom_margin = 120
-    else:
-        # Collapsed mode: legend to the right, vertical
-        legend_config = dict(
-            orientation="v",
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.02,  # To the right of chart
-            font=dict(family="monospace", size=12),  # Larger text
-            bgcolor='rgba(255,255,255,0.9)'
-        )
-    
-    # Legend content and config by mode
-    if legend_mode == 0:
-        legend_names = {s: s for s in all_sensors}
-        legend_config = dict(orientation='v', yanchor='top', y=1, xanchor='left', x=1.02, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.9)')
-        showlegend = True
-    elif legend_mode == 1:
-        legend_names = {s: f"{s}: {sensor_names.get(s, s)}" for s in all_sensors}
-        legend_config = dict(orientation='v', yanchor='top', y=1, xanchor='left', x=1.02, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.9)')
-        showlegend = True
-    elif legend_mode == 2:
-        legend_names = {s: f"{s}: {sensor_names.get(s, s)}" for s in all_sensors}
-        legend_config = dict(orientation='h', yanchor='top', y=-0.25, xanchor='center', x=0.5, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.9)')
-        showlegend = True
-    elif legend_mode == 3:
-        legend_names = {s: s for s in all_sensors}
-        legend_config = dict(orientation='v', yanchor='top', y=1, xanchor='right', x=1, font=dict(family='monospace', size=12), bgcolor='rgba(255,255,255,0.7)')
-        showlegend = True
-    else:
-        legend_names = {s: s for s in all_sensors}
-        legend_config = dict(font=dict(family='monospace', size=12))
-        showlegend = False
-    
-    fig.update_layout(
-        title=dict(text=chart_title, font=dict(color='black', size=14), x=0.5, xanchor='center'),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        margin=dict(l=40, r=40, t=40, b=bottom_margin),
-        xaxis=dict(
-            showline=True,
-            linewidth=2,
-            linecolor='black',
-            mirror=True,
-            gridcolor='#e0e0e0',
-            zeroline=True,
-            zerolinecolor='black',
-            title="Year"
-        ),
-        yaxis=dict(
-            showline=True,
-            linewidth=2,
-            linecolor='black',
-            mirror=True,
-            gridcolor='#e0e0e0',
-            zeroline=True,
-            zerolinecolor='black',
-            range=[0, min_ymax],
-            title=f"{selected_pollutant} Concentration (μg/m³)"
-        ),
-        legend=legend_config,
-        shapes=ref_lines,
-        annotations=ref_annotations
-    )
-    return fig
 
 # Callbacks for filter button interactions
 @callback(
@@ -1057,109 +1140,150 @@ def get_color_scale_info(pollutant, scale_type):
 
 # Callback for individual sensor selection (map interactions)
 @callback(
-    [Output('selected-individual-sensors', 'data'),
-     Output('chart-sensors-dropdown', 'value')],
+    Output('chart-sensors-dropdown', 'value'),
     [Input('map-graph', 'clickData'),
      Input('map-graph', 'selectedData')],
-    [State('selected-individual-sensors', 'data')],
     prevent_initial_call=True
 )
-def update_individual_sensor_selection(click_data, selected_data, current_selection):
+def update_individual_sensor_selection(click_data, selected_data):
+    """Update dropdown selection based on map interactions"""
     ctx = dash.callback_context
-    print(f"[DEBUG] Individual sensor selection callback triggered")
-    print(f"  - trigger_id: {ctx.triggered[0]['prop_id'] if ctx.triggered else 'None'}")
+    print(f"[DEBUG] update_individual_sensor_selection called:")
     print(f"  - click_data: {click_data}")
     print(f"  - selected_data: {selected_data}")
-    print(f"  - current_selection: {current_selection}")
     
-    if not ctx.triggered:
-        return current_selection or [], current_selection or []
+    trigger_id = ctx.triggered[0]['prop_id'] if ctx.triggered else ''
     
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    current = current_selection or []
+    # Get mapping from site_code to id_site for conversion
+    try:
+        loader = get_supabase_loader()
+        active_sensors = loader.get_active_sensors()
+        sitecode_to_id_map = {row['site_code']: row['id_site'] for _, row in active_sensors.iterrows()}
+    except Exception as e:
+        print(f"[ERROR] Error getting site_code mapping: {e}")
+        return []
     
     if 'clickData' in trigger_id:
         if click_data:
             # Single click on a sensor - clear and select only this sensor
             point = click_data['points'][0]
-            sensor_code = point['text']  # site_code is in the text field
-            new_selection = [sensor_code]
-            print(f"[DEBUG] Single click on sensor: {sensor_code}, new selection: {new_selection}")
-            return new_selection, new_selection
+            site_code = point['text']  # site_code is in the text field
+            sensor_id = sitecode_to_id_map.get(site_code, site_code)  # Convert to id_site
+            new_selection = [sensor_id]
+            print(f"[DEBUG] Single click on sensor: {site_code} -> {sensor_id}, new selection: {new_selection}")
+            return new_selection
         else:
             # Click on empty map - clear selection
             print(f"[DEBUG] Click on empty map, clearing selection")
-            return [], []
+            return []
     
     elif 'selectedData' in trigger_id:
         if selected_data:
             # Lasso/box selection - clear and select only lassoed sensors
             selected_points = selected_data['points']
-            selected_sensors = [point['text'] for point in selected_points]
-            print(f"[DEBUG] Lasso selection: {selected_sensors}")
-            return selected_sensors, selected_sensors
+            selected_site_codes = [point['text'] for point in selected_points]
+            selected_sensors = [sitecode_to_id_map.get(code, code) for code in selected_site_codes]
+            print(f"[DEBUG] Lasso selection: {selected_site_codes} -> {selected_sensors}")
+            return selected_sensors
         else:
-            # Lasso selection cleared - clear selection
-            print(f"[DEBUG] Lasso selection cleared")
-            return [], []
+            # Lasso on empty area - clear selection
+            print(f"[DEBUG] Lasso on empty area, clearing selection")
+            return []
     
-    return current, current
-
-# Callback to sync dropdown with selected individual sensors
-@callback(
-    Output('selected-individual-sensors', 'data', allow_duplicate=True),
-    Input('chart-sensors-dropdown', 'value'),
-    prevent_initial_call=True
-)
-def update_sensors_from_dropdown(dropdown_value):
-    return dropdown_value or []
-
-# Callback for Clear Selection button
-@callback(
-    [Output('selected-individual-sensors', 'data', allow_duplicate=True),
-     Output('chart-sensors-dropdown', 'value', allow_duplicate=True)],
-    Input('clear-selection-button', 'n_clicks'),
-    prevent_initial_call=True
-)
-def clear_sensor_selection(n_clicks):
-    if n_clicks:
-        return [], []
-    return dash.no_update, dash.no_update
+    # No valid trigger - return no update
+    return dash.no_update
 
 # Callback for time series chart (small chart)
 @callback(
     Output('time-series-graph', 'figure'),
     [Input('chart-sensors-dropdown', 'value'),
-     Input('map-graph', 'selectedData'),
-     Input('map-graph', 'clickData'),
      Input('selected-pollutant', 'data'),
      Input('selected-averaging', 'data')],
     prevent_initial_call=False
 )
-def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging):
+def update_time_series_chart(dropdown_sensors, selected_pollutant, selected_averaging):
     ref_lines = []  # Always define this at the top
-    all_sensors = []
-    if dropdown_sensors:
-        all_sensors.extend(dropdown_sensors)
-    if lasso_data and 'points' in lasso_data:
-        lasso_sensors = [point['text'] for point in lasso_data['points'] if 'text' in point]
-        all_sensors.extend(lasso_sensors)
-    if click_data and 'points' in click_data:
-        click_sensors = [point['text'] for point in click_data['points'] if 'text' in point]
-        all_sensors.extend(click_sensors)
-    all_sensors = list(set(all_sensors))
-    
+    all_sensors = dropdown_sensors or []
+    all_sensors = list(set(all_sensors))  # Ensure no duplicates
     print(f"[DEBUG] Time series chart - selected sensors: {all_sensors}")
-    
     if not all_sensors:
         fig = go.Figure()
         fig.add_annotation(
-            text="No sensors selected",
+            text="No sensors selected. Click on sensors in the map or use the dropdown to select sensors.",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
             font=dict(size=14, color="gray")
         )
+        fig.update_layout(
+            title=dict(text="Time Series Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        return fig
+    # Filter data for selected sensors
+    try:
+        loader = get_supabase_loader()
+        chart_data = loader.get_combined_data(
+            averaging_period=selected_averaging,
+            id_sites=all_sensors,
+            pollutants=[selected_pollutant]
+        )
+        # Build id_site to site_code and site_name mapping
+        active_sensors = loader.get_active_sensors()
+        id_to_code = dict(zip(active_sensors["id_site"], active_sensors["site_code"]))
+        id_to_name = dict(zip(active_sensors["id_site"], active_sensors["site_name"]))
+        
+        if chart_data.empty:
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No data found for selected sensors and filters.",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=14, color="gray")
+            )
+            fig.update_layout(
+                title=dict(text="Time Series Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
+                plot_bgcolor='white',
+                paper_bgcolor='white'
+            )
+            return fig
+        
+        # Create time series chart
+        fig = go.Figure()
+        
+        for sensor in all_sensors:
+            sensor_data = chart_data[chart_data['id_site'] == sensor]
+            if len(sensor_data) > 0:
+                # Create date column for x-axis
+                if selected_averaging == 'Month':
+                    sensor_data['date'] = pd.to_datetime(dict(year=sensor_data['year'], month=sensor_data['month'], day=1))
+                else:  # Annual
+                    sensor_data['date'] = pd.to_datetime(sensor_data['year'], format='%Y')
+                sensor_data = sensor_data.sort_values('date')
+                # Legend label logic: just site_code for time series chart
+                site_code = id_to_code.get(sensor, sensor)
+                trace_name = site_code
+                fig.add_trace(go.Scatter(
+                    x=sensor_data['date'],
+                    y=sensor_data['value'],
+                    mode='lines+markers',
+                    name=trace_name,
+                    line=dict(width=2),
+                    marker=dict(size=4)
+                ))
+        
+        # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
+        ref_lines = []
+        if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
+            who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
+            uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
+            if selected_pollutant in who_limits:
+                ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+            if selected_pollutant in uk_limits:
+                ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
+        
         fig.update_layout(
             height=170,
             margin=dict(l=40, r=40, t=40, b=40),
@@ -1187,22 +1311,16 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
         # Always show y=0
         fig.update_yaxes(range=[0, None])
         return fig
-    
-    # Filter data for selected sensors
-    chart_data = df[
-        (df['site_code'].isin(all_sensors)) &
-        (df['pollutant'] == selected_pollutant) &
-        (df['averaging_period'] == selected_averaging)
-    ].copy()
-    
-    if len(chart_data) == 0:
+        
+    except Exception as e:
+        print(f"[ERROR] Error loading time series data from Supabase: {e}")
         fig = go.Figure()
         fig.add_annotation(
-            text="No data for selected sensors",
+            text="Error loading data from database",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
-            font=dict(size=14, color="gray")
+            font=dict(size=14, color="red")
         )
         fig.update_layout(
             height=170,
@@ -1216,7 +1334,7 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
                 y=1.02, 
                 xanchor="right", 
                 x=1,
-                font=dict(family="monospace", size=10),  # Narrow font for legend
+                font=dict(family="monospace", size=10),
                 bgcolor='rgba(255,255,255,0.9)'
             ),
             yaxis=dict(
@@ -1228,103 +1346,88 @@ def update_time_series_chart(dropdown_sensors, lasso_data, click_data, selected_
             shapes=ref_lines,
             xaxis=dict(title="Year")
         )
-        # Always show y=0
         fig.update_yaxes(range=[0, None])
         return fig
-    
-    # Create time series chart
-    fig = go.Figure()
-    
-    for sensor in all_sensors:
-        sensor_data = chart_data[chart_data['site_code'] == sensor]
-        if len(sensor_data) > 0:
-            # Create date column for x-axis
-            if selected_averaging == 'Month':
-                sensor_data['date'] = pd.to_datetime(dict(year=sensor_data['year'], month=sensor_data['month'], day=1))
-            else:  # Annual
-                sensor_data['date'] = pd.to_datetime(sensor_data['year'], format='%Y')
-            
-            sensor_data = sensor_data.sort_values('date')
-            
-            fig.add_trace(go.Scatter(
-                x=sensor_data['date'],
-                y=sensor_data['value'],
-                mode='lines+markers',
-                name=sensor,
-                line=dict(width=2),
-                marker=dict(size=4)
-            ))
-    
-    # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
-    ref_lines = []
-    if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
-        who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
-        uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
-        if selected_pollutant in who_limits:
-            ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
-        if selected_pollutant in uk_limits:
-            ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
-    fig.update_layout(
-        height=170,
-        margin=dict(l=40, r=40, t=40, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        showlegend=True,
-        legend=dict(
-            orientation="h", 
-            yanchor="bottom", 
-            y=1.02, 
-            xanchor="right", 
-            x=1,
-            font=dict(family="monospace", size=10),  # Narrow font for legend
-            bgcolor='rgba(255,255,255,0.9)'
-        ),
-        yaxis=dict(
-            showticklabels=False, 
-            range=[0, None], 
-            fixedrange=False, 
-            autorange=True
-        ),
-        shapes=ref_lines,
-        xaxis=dict(title="Year")
-    )
-    # Always show y=0
-    fig.update_yaxes(range=[0, None])
-    return fig
 
 # Callback for bar chart (small chart)
 @callback(
     Output('bar-graph', 'figure'),
     [Input('chart-sensors-dropdown', 'value'),
-     Input('map-graph', 'selectedData'),
-     Input('map-graph', 'clickData'),
      Input('selected-pollutant', 'data'),
      Input('selected-averaging', 'data'),
      Input('selected-year', 'data'),
      Input('selected-month', 'data')],
     prevent_initial_call=False
 )
-def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutant, selected_averaging, selected_year, selected_month):
-    all_sensors = []
-    if dropdown_sensors:
-        all_sensors.extend(dropdown_sensors)
-    if lasso_data and 'points' in lasso_data:
-        lasso_sensors = [point['text'] for point in lasso_data['points'] if 'text' in point]
-        all_sensors.extend(lasso_sensors)
-    if click_data and 'points' in click_data:
-        click_sensors = [point['text'] for point in click_data['points'] if 'text' in point]
-        all_sensors.extend(click_sensors)
-    all_sensors = list(set(all_sensors))
+def update_bar_chart(dropdown_sensors, selected_pollutant, selected_averaging, selected_year, selected_month):
+    all_sensors = dropdown_sensors or []
+    all_sensors = list(set(all_sensors))  # Ensure no duplicates
     print(f"[DEBUG] Bar chart - selected sensors: {all_sensors}")
     if not all_sensors:
         fig = go.Figure()
         fig.add_annotation(
-            text="No sensors selected",
+            text="No sensors selected. Click on sensors in the map or use the dropdown to select sensors.",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
             font=dict(size=14, color="gray")
         )
+        fig.update_layout(
+            title=dict(text="Bar Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        return fig
+    
+    # Filter data for selected sensors, pollutant, averaging period, and time period
+    try:
+        loader = get_supabase_loader()
+        chart_data = loader.get_combined_data(
+            averaging_period=selected_averaging,
+            id_sites=all_sensors,
+            pollutants=[selected_pollutant],
+            years=[selected_year],
+            months=[selected_month] if selected_averaging == 'Month' else None
+        )
+        
+        if chart_data.empty:
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No data found for selected sensors and filters.",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=14, color="gray")
+            )
+            fig.update_layout(
+                title=dict(text="Bar Chart", font=dict(color='black', size=14), x=0.5, xanchor='center'),
+                plot_bgcolor='white',
+                paper_bgcolor='white'
+            )
+            return fig
+        
+        # Create bar chart - average values by sensor
+        sensor_avg = chart_data.groupby('id_site')['value'].mean().reset_index()
+        sensor_avg = sensor_avg.sort_values('value', ascending=False)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=sensor_avg['id_site'],
+            y=sensor_avg['value'],
+            marker_color='lightblue',
+            name=f"{selected_pollutant} Average"
+        ))
+        
+        # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
+        ref_lines = []
+        if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
+            who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
+            uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
+            if selected_pollutant in who_limits:
+                ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
+            if selected_pollutant in uk_limits:
+                ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
+        
         fig.update_layout(
             height=170,
             margin=dict(l=40, r=40, t=40, b=40),
@@ -1332,26 +1435,19 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             paper_bgcolor='white',
             xaxis=dict(tickangle=45),
             yaxis=dict(showticklabels=False, range=[0, None]),
-            shapes=[]
+            shapes=ref_lines
         )
         return fig
-    # Filter data for selected sensors, pollutant, averaging period, and time period
-    chart_data = df[
-        (df['site_code'].isin(all_sensors)) &
-        (df['pollutant'] == selected_pollutant) &
-        (df['averaging_period'] == selected_averaging) &
-        (df['year'] == selected_year)
-    ].copy()
-    if selected_averaging == 'Month':
-        chart_data = chart_data[chart_data['month'] == selected_month]
-    if len(chart_data) == 0:
+        
+    except Exception as e:
+        print(f"[ERROR] Error loading bar chart data from Supabase: {e}")
         fig = go.Figure()
         fig.add_annotation(
-            text="No data for selected sensors",
+            text="Error loading data from database",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
-            font=dict(size=14, color="gray")
+            font=dict(size=14, color="red")
         )
         fig.update_layout(
             height=170,
@@ -1363,37 +1459,6 @@ def update_bar_chart(dropdown_sensors, lasso_data, click_data, selected_pollutan
             shapes=[]
         )
         return fig
-    # Create bar chart - average values by sensor
-    sensor_avg = chart_data.groupby('site_code')['value'].mean().reset_index()
-    sensor_avg = sensor_avg.sort_values('value', ascending=False)
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=sensor_avg['site_code'],
-        y=sensor_avg['value'],
-        marker_color='lightblue',
-        marker_line_color='darkblue',
-        marker_line_width=1,
-        opacity=0.8
-    ))
-    # Add reference lines for WHO and UK limits if pollutant is NO2, PM2.5, or PM10
-    ref_lines = []
-    if selected_pollutant in ["NO2", "PM2.5", "PM10"]:
-        who_limits = {"NO2": 10, "PM2.5": 5, "PM10": 15}
-        uk_limits = {"NO2": 40, "PM2.5": 20, "PM10": 40}
-        if selected_pollutant in who_limits:
-            ref_lines.append(dict(type='line', y0=who_limits[selected_pollutant], y1=who_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='green', width=2, dash='dot')))
-        if selected_pollutant in uk_limits:
-            ref_lines.append(dict(type='line', y0=uk_limits[selected_pollutant], y1=uk_limits[selected_pollutant], xref='paper', x0=0, x1=1, line=dict(color='red', width=2, dash='dot')))
-    fig.update_layout(
-        height=170,
-        margin=dict(l=40, r=40, t=40, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        xaxis=dict(tickangle=45),
-        yaxis=dict(showticklabels=False, range=[0, None]),
-        shapes=ref_lines
-    )
-    return fig
 
 # Callback for Clear Map Selection button
 @callback(
@@ -1491,8 +1556,112 @@ def cycle_legend_mode(n_clicks, current_mode):
 def marker_size_for_zoom(zoom, base_zoom=12, base_size=20):
     """Dramatically scale marker size with zoom level."""
     return max(7, int(base_size *1.2**(zoom - base_zoom)))
- 
-    
+
+@callback(
+    Output('chart-sensors-dropdown', 'options'),
+    [Input('selected-boroughs', 'data'),
+     Input('selected-sensor-types', 'data')],
+    prevent_initial_call=False
+)
+def update_sensor_dropdown_options(selected_boroughs, selected_sensor_types):
+    """Update sensor dropdown options based on selected boroughs and sensor types"""
+    try:
+        loader = get_supabase_loader()
+        active_sensors = loader.get_active_sensors()
+        
+        if active_sensors.empty:
+            return []
+        
+        # Filter sensors by selected boroughs and sensor types
+        filtered_sensors = active_sensors[
+            active_sensors['borough'].isin(selected_boroughs) & 
+            active_sensors['sensor_type'].isin(selected_sensor_types)
+        ]
+        
+        # Create options with id_site as value and site_code as label
+        options = []
+        for _, sensor in filtered_sensors.iterrows():
+            # Use site_code for label, id_site for value
+            site_code = sensor.get('site_code', sensor['id_site'])
+            site_name = sensor.get('site_name', '')
+            options.append({
+                'label': f"{site_code}: {site_name}" if site_name else site_code,
+                'value': sensor['id_site']
+            })
+        
+        # Sort by id_site
+        options.sort(key=lambda x: x['value'])
+        
+        return options
+        
+    except Exception as e:
+        print(f"[ERROR] Error updating sensor dropdown options: {e}")
+        return []
+
+@callback(
+    [Output('chart-start-date', 'date'),
+     Output('chart-end-date', 'date')],
+    [Input('selected-pollutant', 'data'),
+     Input('selected-averaging', 'data')],
+    prevent_initial_call=False
+)
+def update_date_picker_defaults(selected_pollutant, selected_averaging):
+    """Update date picker defaults based on available data"""
+    try:
+        loader = get_supabase_loader()
+        
+        # Get all data for the selected pollutant and averaging period
+        all_data = loader.get_combined_data(
+            averaging_period=selected_averaging,
+            pollutants=[selected_pollutant]
+        )
+        
+        if all_data.empty:
+            # Fallback to current year
+            current_year = datetime.now().year
+            if selected_averaging == 'Annual':
+                start_date = f"{current_year}-01-01"
+                end_date = f"{current_year}-12-31"
+            else:
+                start_date = f"{current_year}-01-01"
+                end_date = f"{current_year}-12-31"
+        else:
+            # Convert date column to datetime if it's not already
+            if 'date' in all_data.columns:
+                all_data['date'] = pd.to_datetime(all_data['date'])
+                start_date = all_data['date'].min().strftime('%Y-%m-%d')
+                end_date = all_data['date'].max().strftime('%Y-%m-%d')
+            else:
+                # Fallback to year-based dates
+                min_year = all_data['year'].min()
+                max_year = all_data['year'].max()
+                if selected_averaging == 'Annual':
+                    start_date = f"{min_year}-01-01"
+                    end_date = f"{max_year}-12-31"
+                else:
+                    start_date = f"{min_year}-01-01"
+                    end_date = f"{max_year}-12-31"
+        
+        return start_date, end_date
+        
+    except Exception as e:
+        print(f"[ERROR] Error setting date picker defaults: {e}")
+        # Fallback to current year
+        current_year = datetime.now().year
+        return f"{current_year}-01-01", f"{current_year}-12-31"
+
+# Callback for Clear Selection button
+@callback(
+    Output('chart-sensors-dropdown', 'value', allow_duplicate=True),
+    Input('clear-selection-button', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_sensor_selection(n_clicks):
+    if n_clicks:
+        return []
+    return dash.no_update
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
