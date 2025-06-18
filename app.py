@@ -727,8 +727,7 @@ app.layout = html.Div(
                                                 value=[],
                                                 style={'marginTop': '4px'}
                                             )
-                                        ], style={'marginTop': '16px'})
-
+                                        ], style={'marginTop': '16px'}),
                                                                            
                                             # Add Borough Target Toggle
                                             html.Div([
